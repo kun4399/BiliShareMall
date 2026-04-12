@@ -109,3 +109,7 @@ node_modules
 frontend/dist
 main_local_test.go
 .DS_Store
+
+# local generated runtime bindings (CLI version mismatch noise)
+frontend/wailsjs/runtime/runtime.js
+frontend/wailsjs/runtime/runtime.d.ts
