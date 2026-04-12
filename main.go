@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"fmt"
 	app "github.com/mikumifa/BiliShareMall/internal/app"
 	. "github.com/mikumifa/BiliShareMall/internal/domain"
 	. "github.com/mikumifa/BiliShareMall/internal/util"
@@ -11,13 +10,15 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 )
 
 //go:embed all:frontend/dist
-var assets embed.FS
+var frontendAssets embed.FS
+
+//go:embed all:dict
+var runtimeAssets embed.FS
 
 func InitEnv() {
 
@@ -37,25 +38,32 @@ func InitEnv() {
 	Env.BasePath = filepath.Dir(exePath)
 	Env.AppName = strings.TrimSuffix(filepath.Base(exePath), filepath.Ext(exePath))
 
-	// step2: Create a persistent data symlink
 	if Env.OS == "darwin" {
-		user, _ := user.Current()
-		linkPath := Env.BasePath + "/data"
-		appPath := "/Users/" + user.Username + "/Library/Application Support/" + Env.AppName
-		os.MkdirAll(appPath, os.ModePerm)
-		os.Symlink(appPath, linkPath)
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			log.Panic().Err(homeErr).Msg("Resolve user home failed")
+		}
+		Env.DataPath = filepath.Join(home, "Library", "Application Support", Env.AppName)
 	} else if Env.OS == "windows" {
-		user, _ := user.Current()
-		appPath := fmt.Sprintf("%s\\AppData\\Local\\%s", user.HomeDir, Env.AppName)
-		linkPath := Env.BasePath + "\\data"
-		os.MkdirAll(appPath, os.ModePerm)
-		os.Symlink(appPath, linkPath)
-
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData == "" {
+			home, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				log.Panic().Err(homeErr).Msg("Resolve user home failed")
+			}
+			localAppData = filepath.Join(home, "AppData", "Local")
+		}
+		Env.DataPath = filepath.Join(localAppData, Env.AppName)
 	} else {
-		log.Panic().Err(err).Msg("System not support")
-		panic("System not support")
+		log.Panic().Str("os", Env.OS).Msg("System not support")
 	}
 
+	if err = os.MkdirAll(Env.DataPath, 0o755); err != nil {
+		log.Panic().Err(err).Str("dataPath", Env.DataPath).Msg("Create data dir failed")
+	}
+	if err = SyncEmbeddedDir(runtimeAssets, "dict", Env.DataPath); err != nil {
+		log.Panic().Err(err).Msg("Sync runtime dict assets failed")
+	}
 }
 
 func main() {
@@ -65,14 +73,14 @@ func main() {
 	log.Info().Msg("Creating newApp")
 	err := FileLogger()
 	if err != nil {
-		log.Panic()
+		log.Panic().Err(err).Msg("Init file logger failed")
 	}
 	err = wails.Run(&options.App{
 		Title:  "BiliShareMall",
 		Width:  1024,
 		Height: 768,
 		AssetServer: &assetserver.Options{
-			Assets: assets,
+			Assets: frontendAssets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        newApp.Startup,

@@ -7,6 +7,7 @@ import (
 
 var Env = &EnvResult{
 	BasePath:    "",
+	DataPath:    "",
 	AppName:     "",
 	OS:          sysruntime.GOOS,
 	ARCH:        sysruntime.GOARCH,
@@ -18,6 +19,7 @@ type EnvResult struct {
 	FromTaskSch bool   `json:"-"`
 	AppName     string `json:"appName"`
 	BasePath    string `json:"basePath"`
+	DataPath    string `json:"dataPath"`
 	OS          string `json:"os"`
 	ARCH        string `json:"arch"`
 	X64Level    int    `json:"x64Level"`
