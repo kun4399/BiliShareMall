@@ -15,16 +15,17 @@ func (d *Database) ReadCSCItems(page, pageSize int, filterName string, sortOptio
 					payment_time, is_my_publish, uface, uname `
 	countStart := `SELECT
 					COUNT(*) `
-	query := ` FROM c2c_fts
-			  LEFT JOIN c2c_items ON c2c_items.c2c_items_id = c2c_fts.rowid`
+	query := ` FROM c2c_items `
 
 	// 动态构建WHERE条件
 	var conditions []string
 	var args []interface{}
 
 	if filterName != "" {
-		conditions = append(conditions, "c2c_fts.c2c_items_name MATCH jieba_query(?)")
-		args = append(args, filterName)
+		// Avoid FTS extension-specific query functions here to keep search stable across packaged runtimes.
+		escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(filterName)
+		conditions = append(conditions, "c2c_items.c2c_items_name LIKE ? ESCAPE '\\'")
+		args = append(args, "%"+escaped+"%")
 	}
 
 	//time

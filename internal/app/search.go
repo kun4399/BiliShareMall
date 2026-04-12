@@ -7,6 +7,7 @@ import (
 	"github.com/mikumifa/BiliShareMall/internal/util"
 	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog/log"
+	"runtime/debug"
 	"time"
 )
 
@@ -25,7 +26,22 @@ type C2CItemVO struct {
 	ShowPrice       string  `json:"showPrice"`
 }
 
-func (a *App) ListC2CItem(page, pageSize int, filterName string, sortOption int, startTime, endTime int64, fromPrice, toPrice int, used bool, cookieStr string) (C2CItemListVO, error) {
+func (a *App) ListC2CItem(page, pageSize int, filterName string, sortOption int, startTime, endTime int64, fromPrice, toPrice int, used bool, cookieStr string) (ret C2CItemListVO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Any("panic", r).Bytes("stack", debug.Stack()).Msg("panic recovered in ListC2CItem")
+			ret = C2CItemListVO{}
+			err = fmt.Errorf("search failed due to internal error")
+		}
+	}()
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+
 	log.Info().
 		Int("page", page).
 		Int("pageSize", pageSize).
@@ -36,31 +52,49 @@ func (a *App) ListC2CItem(page, pageSize int, filterName string, sortOption int,
 		Int("fromPrice", fromPrice).
 		Int("toPrice", toPrice).
 		Msg("Listing C2C items with parameters")
-	items, total, err := a.d.ReadCSCItems(page, pageSize, filterName, sortOption, util.TimestampToTime(startTime), util.TimestampToTime(endTime), fromPrice, toPrice)
+
+	readAndConvert := func() ([]C2CItemVO, int, error) {
+		items, total, err := a.d.ReadCSCItems(page, pageSize, filterName, sortOption, util.TimestampToTime(startTime), util.TimestampToTime(endTime), fromPrice, toPrice)
+		if err != nil {
+			return nil, 0, err
+		}
+		result := make([]C2CItemVO, 0, len(items))
+		for _, item := range items {
+			vo := C2CItemVO{
+				C2CItemsID:      item.C2CItemsID,
+				C2CItemsName:    item.C2CItemsName,
+				TotalItemsCount: item.TotalItemsCount,
+				Price:           float64(item.Price) / 100,
+				ShowPrice:       item.ShowPrice,
+			}
+			result = append(result, vo)
+		}
+		return result, total, nil
+	}
+
+	result, total, err := readAndConvert()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list items")
 		return C2CItemListVO{}, err
 	}
-	result := make([]C2CItemVO, 0)
-	for _, item := range items {
-		vo := C2CItemVO{
-			C2CItemsID:      item.C2CItemsID,
-			C2CItemsName:    item.C2CItemsName,
-			TotalItemsCount: item.TotalItemsCount,
-			Price:           float64(item.Price) / 100,
-			ShowPrice:       item.ShowPrice,
-		}
-		result = append(result, vo)
-	}
-	if used {
-		if a.RemoveErrorItem(result, cookieStr) {
-			return a.ListC2CItem(page, pageSize, filterName, sortOption, startTime, endTime, fromPrice, toPrice, used, cookieStr)
+
+	for used && a.RemoveErrorItem(result, cookieStr) {
+		result, total, err = readAndConvert()
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to list items after removing unavailable items")
+			return C2CItemListVO{}, err
 		}
 	}
+
+	totalPages := 1
+	if total > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+	}
+
 	return C2CItemListVO{
 		Items:       result,
 		Total:       total,
-		TotalPages:  total/pageSize + 1,
+		TotalPages:  totalPages,
 		CurrentPage: page,
 	}, nil
 }
@@ -100,7 +134,11 @@ func (a *App) checkItemStatus(id int64, cookiesStr string) (bool, error) {
 	}}
 	var resp domain.CheckResponse
 	err = client.SendRequest(http.POST, "https://mall.bilibili.com/magic-c/c2c/order/info?platform=h5", data, &resp)
-	a.c.Set(fmt.Sprintf("check:%d", id), resp.Code != 60000002, cache.DefaultExpiration)
+	if err != nil {
+		return false, err
+	}
+	canBuy := resp.Code != 60000002
+	a.c.Set(fmt.Sprintf("check:%d", id), canBuy, cache.DefaultExpiration)
 	time.Sleep(1 * time.Second)
-	return resp.Code != 60000002, nil
+	return canBuy, nil
 }

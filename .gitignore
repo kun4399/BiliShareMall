@@ -113,3 +113,4 @@ main_local_test.go
 # local generated runtime bindings (CLI version mismatch noise)
 frontend/wailsjs/runtime/runtime.js
 frontend/wailsjs/runtime/runtime.d.ts
+.cache/

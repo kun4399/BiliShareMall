@@ -19,6 +19,10 @@ tidy:
 build:
 	 wails build  -nsis -tags fts5
 
+.PHONY: build-verify
+build-verify:
+	bash ./bin/build_verify.sh
+
 .PHONY: debug
 debug:
 	wails build  -nsis -tags fts5 -windowsconsole -debug

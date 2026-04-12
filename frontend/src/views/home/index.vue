@@ -109,6 +109,7 @@ function search(firstPage: boolean = false) {
       loading.value = false;
     })
     .catch(_err => {
+      loading.value = false;
       message.error('请求失败');
     });
 }

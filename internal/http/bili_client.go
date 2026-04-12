@@ -55,15 +55,21 @@ func (c *BiliClient) SendRequest(method, url string, data map[string]interface{}
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	res, err := c.httpClient.Do(req)
-	defer res.Body.Close()
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
+	if res == nil || res.Body == nil {
+		return fmt.Errorf("request failed: empty response body")
+	}
+	defer res.Body.Close()
 	resp, err := io.ReadAll(res.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
 	err = json.Unmarshal(resp, respObjRef)
 	if err != nil {
 		log.Error().Str("text", string(resp)).Msg("error response text")
-		return fmt.Errorf("failed to read response: %w", err)
+		return fmt.Errorf("failed to decode response: %w", err)
 	}
 	return nil
 }
