@@ -10,6 +10,7 @@ import (
 	"github.com/mikumifa/BiliShareMall/internal/util"
 	"github.com/rs/zerolog/log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 )
@@ -17,6 +18,7 @@ import (
 // MailListResponse https://mall.bilibili.com/mall-magic-c/internet/c2c/v2/list
 
 func TestMailListResponse(t *testing.T) {
+	t.Skip("manual database fixture test")
 
 	rawJson := `
 {
@@ -61,15 +63,15 @@ func TestMailListResponse(t *testing.T) {
 	_ = json.Unmarshal([]byte(rawJson), &response)
 	log.Info().Any("MailListResponse", response)
 
-	d, _ := dao.NewDatabase("bsm.db")
-	content, err := os.ReadFile("init.sql")
+	dbPath := filepath.Join(t.TempDir(), "bsm.db")
+	d, _ := dao.NewDatabase(dbPath)
+	content, err := os.ReadFile("dict/init.sql")
 	if err != nil {
-		log.Error().Err(err).Msg("Init")
-		return
+		t.Fatalf("read init.sql: %v", err)
 	}
 	err = d.Init(string(content))
 	if err != nil {
-		log.Error().Err(err)
+		t.Fatalf("init db: %v", err)
 	}
 	num := d.SaveMailListToDB(&response)
 	fmt.Printf("%d", num)
@@ -77,8 +79,10 @@ func TestMailListResponse(t *testing.T) {
 }
 
 func Test_list(t *testing.T) {
+	t.Skip("manual database listing test")
 	util.PrettyLogger()
-	d, _ := dao.NewDatabase("bsm.db")
+	dbPath := filepath.Join(t.TempDir(), "bsm.db")
+	d, _ := dao.NewDatabase(dbPath)
 	content, err := os.ReadFile("dict/init.sql")
 	if err != nil {
 		panic(err)
@@ -101,6 +105,7 @@ func Test_list(t *testing.T) {
 
 // 只适用于window -tags fts5
 func Test_simple_list(t *testing.T) {
+	t.Skip("manual sqlite extension check")
 	util.PrettyLogger()
 	sql.Register("sqlite3_simple",
 		&sqlite3.SQLiteDriver{

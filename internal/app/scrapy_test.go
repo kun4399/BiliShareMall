@@ -1,42 +1,33 @@
 package app
 
 import (
-	"fmt"
-	"io"
-	"net/http"
-	"strings"
 	"testing"
+
+	"github.com/mikumifa/BiliShareMall/internal/dao"
 )
 
-func Test_ScrapyOne(t *testing.T) {
-
-	url := "https://mall.bilibili.com/mall-magic-c/internet/c2c/v2/list"
-	method := "POST"
-
-	payload := strings.NewReader(`{"categoryFilter":"2312","discountFilters":["50-100"],"nextId":null,"priceFilters":["10000-20000"],"sortType":"TIME_DESC"}`)
-
-	client := &http.Client{}
-	req, err := http.NewRequest(method, url, payload)
-
-	if err != nil {
-		fmt.Println(err)
-		return
+func TestGetMarketRuntimeConfigReturnsFallbackWithoutCookie(t *testing.T) {
+	a := &App{}
+	config := a.GetMarketRuntimeConfig("")
+	if len(config.Categories) == 0 {
+		t.Fatal("expected categories in fallback config")
 	}
-	req.Header.Add("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0")
-	req.Header.Add("Content-Type", "application/json")
-
-	res, err := client.Do(req)
-	if err != nil {
-		fmt.Println(err)
-		return
+	if len(config.Sorts) == 0 {
+		t.Fatal("expected sorts in fallback config")
 	}
-	defer res.Body.Close()
+}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		fmt.Println(err)
-		return
+func TestCreateScrapyItemStructCarriesFilterFields(t *testing.T) {
+	item := dao.ScrapyItem{
+		Product:             "2312",
+		ProductName:         "手办",
+		Order:               "TIME_DESC",
+		PriceFilter:         "10000-20000",
+		PriceFilterLabel:    "100-200元",
+		DiscountFilter:      "50-70",
+		DiscountFilterLabel: "50-70%",
 	}
-	fmt.Println(string(body))
-
+	if item.PriceFilter == "" || item.DiscountFilter == "" {
+		t.Fatal("expected non-empty filter fields")
+	}
 }

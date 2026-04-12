@@ -11,7 +11,11 @@ type LoginInfo struct {
 }
 
 func (a *App) GetLoginKeyAndUrl() LoginInfo {
-	key, loginUrl := http.GetLoginKeyAndUrl()
+	key, loginUrl, err := http.GetLoginKeyAndUrl()
+	if err != nil {
+		log.Error().Err(err).Msg("GetLoginKeyAndUrl error")
+		return LoginInfo{}
+	}
 	loginInfo := LoginInfo{
 		Key:      key,
 		LoginUrl: loginUrl,
@@ -21,17 +25,24 @@ func (a *App) GetLoginKeyAndUrl() LoginInfo {
 
 // VerifyLoginResponse 封装登录验证响应的结构体
 type VerifyLoginResponse struct {
+	Status    string `json:"status"`
 	CookieStr string `json:"cookies"`
+	Message   string `json:"message"`
 }
 
 func (a *App) VerifyLogin(loginKey string) VerifyLoginResponse {
-	str, err := http.VerifyLogin(loginKey)
+	result, err := http.VerifyLogin(loginKey)
 	if err != nil {
 		log.Error().Err(err).Msg("VerifyLogin error")
-		return VerifyLoginResponse{}
+		return VerifyLoginResponse{
+			Status:  string(result.Status),
+			Message: result.Message,
+		}
 	}
 	ret := VerifyLoginResponse{
-		CookieStr: str,
+		Status:    string(result.Status),
+		CookieStr: result.Cookies,
+		Message:   result.Message,
 	}
 	return ret
 }

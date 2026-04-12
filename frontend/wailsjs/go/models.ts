@@ -71,8 +71,64 @@ export namespace app {
 	        this.login_url = source["login_url"];
 	    }
 	}
+	export class MarketFilterOption {
+	    label: string;
+	    value: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MarketFilterOption(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.label = source["label"];
+	        this.value = source["value"];
+	    }
+	}
+	export class MarketRuntimeConfig {
+	    categories: MarketFilterOption[];
+	    sorts: MarketFilterOption[];
+	    priceFilters: MarketFilterOption[];
+	    discountFilters: MarketFilterOption[];
+	    source: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MarketRuntimeConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.categories = this.convertValues(source["categories"], MarketFilterOption);
+	        this.sorts = this.convertValues(source["sorts"], MarketFilterOption);
+	        this.priceFilters = this.convertValues(source["priceFilters"], MarketFilterOption);
+	        this.discountFilters = this.convertValues(source["discountFilters"], MarketFilterOption);
+	        this.source = source["source"];
+	        this.message = source["message"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class VerifyLoginResponse {
+	    status: string;
 	    cookies: string;
+	    message: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new VerifyLoginResponse(source);
@@ -80,7 +136,9 @@ export namespace app {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
 	        this.cookies = source["cookies"];
+	        this.message = source["message"];
 	    }
 	}
 
@@ -90,8 +148,10 @@ export namespace dao {
 	
 	export class ScrapyItem {
 	    id: number;
-	    priceRange: number[];
-	    rateRange: number[];
+	    priceFilter: string;
+	    priceFilterLabel: string;
+	    discountFilter: string;
+	    discountFilterLabel: string;
 	    product: string;
 	    productName: string;
 	    nums: number;
@@ -108,8 +168,10 @@ export namespace dao {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
-	        this.priceRange = source["priceRange"];
-	        this.rateRange = source["rateRange"];
+	        this.priceFilter = source["priceFilter"];
+	        this.priceFilterLabel = source["priceFilterLabel"];
+	        this.discountFilter = source["discountFilter"];
+	        this.discountFilterLabel = source["discountFilterLabel"];
 	        this.product = source["product"];
 	        this.productName = source["productName"];
 	        this.nums = source["nums"];

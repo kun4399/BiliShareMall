@@ -8,11 +8,17 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mikumifa/BiliShareMall/internal/util"
 	"runtime"
+	"sync"
 )
 
 type Database struct {
 	Db *sql.DB
 }
+
+var (
+	registerSQLiteDriverOnce sync.Once
+	registerSQLiteDriverErr  error
+)
 
 func NewDatabase(dbPath string) (*Database, error) {
 
@@ -25,12 +31,17 @@ func NewDatabase(dbPath string) (*Database, error) {
 	default:
 		return nil, fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}
-	sql.Register("sqlite3_simple",
-		&sqlite3.SQLiteDriver{
-			Extensions: []string{
-				extension,
-			},
-		})
+	registerSQLiteDriverOnce.Do(func() {
+		sql.Register("sqlite3_simple",
+			&sqlite3.SQLiteDriver{
+				Extensions: []string{
+					extension,
+				},
+			})
+	})
+	if registerSQLiteDriverErr != nil {
+		return nil, registerSQLiteDriverErr
+	}
 
 	db, err := sql.Open("sqlite3_simple", dbPath)
 	if err != nil {

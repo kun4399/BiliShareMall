@@ -2,98 +2,138 @@ package dao
 
 import (
 	"context"
-	"encoding/json"
 	"github.com/mikumifa/BiliShareMall/internal/domain"
 	"github.com/rs/zerolog/log"
 	"time"
 )
 
 type ScrapyItem struct {
-	Id             int64     `json:"id"`
-	PriceRange     []float64 `json:"priceRange"`
-	RateRange      []float64 `json:"rateRange"`
-	Product        string    `json:"product"`
-	ProductName    string    `json:"productName"`
-	Nums           int       `json:"nums"`
-	Order          string    `json:"order"`
-	IncreaseNumber int       `json:"increaseNumber"`
-	NextToken      *string   `json:"nextToken"`
-	CreateTime     time.Time `json:"createTime"`
+	Id                  int64     `json:"id"`
+	PriceFilter         string    `json:"priceFilter"`
+	PriceFilterLabel    string    `json:"priceFilterLabel"`
+	DiscountFilter      string    `json:"discountFilter"`
+	DiscountFilterLabel string    `json:"discountFilterLabel"`
+	Product             string    `json:"product"`
+	ProductName         string    `json:"productName"`
+	Nums                int       `json:"nums"`
+	Order               string    `json:"order"`
+	IncreaseNumber      int       `json:"increaseNumber"`
+	NextToken           *string   `json:"nextToken"`
+	CreateTime          time.Time `json:"createTime"`
 }
 
-// CreateScrapyItem ScrapyItem
 func (d *Database) CreateScrapyItem(item ScrapyItem) (int64, error) {
-
-	priceRangeJSON, _ := json.Marshal(item.PriceRange)
-	rateRangeJSON, _ := json.Marshal(item.RateRange)
-	result, err := d.Db.ExecContext(context.Background(),
-		"INSERT INTO scrapy_items (price_range, rate_range, product, product_name, nums, increase_number, next_token, create_time,`order`) VALUES (?, ?, ?, ?, ?, ?, ?, ?,?)",
-		priceRangeJSON, rateRangeJSON, item.Product, item.ProductName, item.Nums, item.IncreaseNumber, item.NextToken, item.CreateTime, item.Order)
+	result, err := d.Db.ExecContext(
+		context.Background(),
+		`INSERT INTO scrapy_items (
+			price_filter, price_filter_label, discount_filter, discount_filter_label,
+			product, product_name, nums, increase_number, next_token, create_time, "order"
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.PriceFilter,
+		item.PriceFilterLabel,
+		item.DiscountFilter,
+		item.DiscountFilterLabel,
+		item.Product,
+		item.ProductName,
+		item.Nums,
+		item.IncreaseNumber,
+		item.NextToken,
+		item.CreateTime,
+		item.Order,
+	)
 	if err != nil {
 		return -1, err
 	}
 	return result.LastInsertId()
 }
-func (d *Database) UpdateScrapyItem(item *ScrapyItem) (int64, error) {
 
-	priceRangeJSON, _ := json.Marshal(item.PriceRange)
-	rateRangeJSON, _ := json.Marshal(item.RateRange)
-	result, err := d.Db.ExecContext(context.Background(),
-		"UPDATE scrapy_items SET price_range = ?, rate_range = ?, product = ?, product_name = ?, nums = ?, increase_number = ?, next_token = ?, create_time = ? WHERE id = ?",
-		priceRangeJSON, rateRangeJSON, item.Product, item.ProductName, item.Nums, item.IncreaseNumber, item.NextToken, item.CreateTime, item.Id)
+func (d *Database) UpdateScrapyItem(item *ScrapyItem) (int64, error) {
+	result, err := d.Db.ExecContext(
+		context.Background(),
+		`UPDATE scrapy_items SET
+			price_filter = ?, price_filter_label = ?, discount_filter = ?, discount_filter_label = ?,
+			product = ?, product_name = ?, nums = ?, increase_number = ?, next_token = ?, create_time = ?, "order" = ?
+		 WHERE id = ?`,
+		item.PriceFilter,
+		item.PriceFilterLabel,
+		item.DiscountFilter,
+		item.DiscountFilterLabel,
+		item.Product,
+		item.ProductName,
+		item.Nums,
+		item.IncreaseNumber,
+		item.NextToken,
+		item.CreateTime,
+		item.Order,
+		item.Id,
+	)
 	if err != nil {
 		return -1, err
 	}
 	return result.RowsAffected()
 }
 
-// ReadScrapyItem ScrapyItem
 func (d *Database) ReadScrapyItem(id int) (ScrapyItem, error) {
 	var item ScrapyItem
-	var priceRangeJSON, rateRangeJSON string
-	err := d.Db.QueryRowContext(context.Background(), "SELECT price_range, rate_range, product, product_name, nums, increase_number, next_token, create_time,`order` FROM scrapy_items WHERE id = ?", id).Scan(&priceRangeJSON, &rateRangeJSON, &item.Product, &item.ProductName, &item.Nums, &item.IncreaseNumber, &item.NextToken, &item.CreateTime, &item.Order)
+	err := d.Db.QueryRowContext(
+		context.Background(),
+		`SELECT
+			price_filter, price_filter_label, discount_filter, discount_filter_label,
+			product, product_name, nums, increase_number, next_token, create_time, "order"
+		FROM scrapy_items WHERE id = ?`,
+		id,
+	).Scan(
+		&item.PriceFilter,
+		&item.PriceFilterLabel,
+		&item.DiscountFilter,
+		&item.DiscountFilterLabel,
+		&item.Product,
+		&item.ProductName,
+		&item.Nums,
+		&item.IncreaseNumber,
+		&item.NextToken,
+		&item.CreateTime,
+		&item.Order,
+	)
 	item.Id = int64(id)
-	if err != nil {
-		return item, err
-	}
-	// 解析 JSON
-	err = json.Unmarshal([]byte(priceRangeJSON), &item.PriceRange)
-	if err != nil {
-		return ScrapyItem{}, err
-	}
-	err = json.Unmarshal([]byte(rateRangeJSON), &item.RateRange)
-	if err != nil {
-		return ScrapyItem{}, err
-	}
-	return item, nil
+	return item, err
 }
 
-// DeleteScrapyItem ScrapyItem
 func (d *Database) DeleteScrapyItem(id int) error {
 	_, err := d.Db.ExecContext(context.Background(), "DELETE FROM scrapy_items WHERE id = ?", id)
 	return err
 }
 
-// ReadAllScrapyItems 读取所有项
 func (d *Database) ReadAllScrapyItems() ([]ScrapyItem, error) {
-	rows, err := d.Db.QueryContext(context.Background(), "SELECT id, price_range, rate_range, product, product_name, nums, increase_number, next_token, create_time,`order` FROM scrapy_items")
+	rows, err := d.Db.QueryContext(
+		context.Background(),
+		`SELECT
+			id, price_filter, price_filter_label, discount_filter, discount_filter_label,
+			product, product_name, nums, increase_number, next_token, create_time, "order"
+		FROM scrapy_items`,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items = make([]ScrapyItem, 0)
+
+	items := make([]ScrapyItem, 0)
 	for rows.Next() {
 		var item ScrapyItem
-		var priceRangeJSON, rateRangeJSON string
-		if err := rows.Scan(&item.Id, &priceRangeJSON, &rateRangeJSON, &item.Product, &item.ProductName, &item.Nums, &item.IncreaseNumber, &item.NextToken, &item.CreateTime, &item.Order); err != nil {
-			return nil, err
-		}
-		err := json.Unmarshal([]byte(priceRangeJSON), &item.PriceRange)
-		if err != nil {
-			return nil, err
-		}
-		err = json.Unmarshal([]byte(rateRangeJSON), &item.RateRange)
-		if err != nil {
+		if err := rows.Scan(
+			&item.Id,
+			&item.PriceFilter,
+			&item.PriceFilterLabel,
+			&item.DiscountFilter,
+			&item.DiscountFilterLabel,
+			&item.Product,
+			&item.ProductName,
+			&item.Nums,
+			&item.IncreaseNumber,
+			&item.NextToken,
+			&item.CreateTime,
+			&item.Order,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

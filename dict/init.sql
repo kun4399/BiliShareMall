@@ -1,8 +1,10 @@
 CREATE TABLE IF NOT EXISTS scrapy_items
 (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    price_range     TEXT,
-    rate_range      TEXT,
+    price_filter    TEXT NOT NULL,
+    price_filter_label TEXT NOT NULL,
+    discount_filter TEXT NOT NULL,
+    discount_filter_label TEXT NOT NULL,
     product         TEXT NOT NULL,
     product_name    TEXT NOT NULL,
     nums            INTEGER,

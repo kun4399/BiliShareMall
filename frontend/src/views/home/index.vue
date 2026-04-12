@@ -108,9 +108,9 @@ function search(firstPage: boolean = false) {
       pagination.value.pageCount = result.totalPages;
       loading.value = false;
     })
-    .catch(_err => {
+    .catch(err => {
       loading.value = false;
-      message.error('请求失败');
+      message.error(err?.message || '请求失败');
     });
 }
 onMounted(() => {

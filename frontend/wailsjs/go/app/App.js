@@ -18,6 +18,10 @@ export function GetLoginKeyAndUrl() {
   return window['go']['app']['App']['GetLoginKeyAndUrl']();
 }
 
+export function GetMarketRuntimeConfig(arg1) {
+  return window['go']['app']['App']['GetMarketRuntimeConfig'](arg1);
+}
+
 export function GetNowRunTaskId() {
   return window['go']['app']['App']['GetNowRunTaskId']();
 }

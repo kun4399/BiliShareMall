@@ -1,78 +1,85 @@
 <script setup lang="ts">
-import { type Ref, onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useLoadingBar, useMessage } from 'naive-ui';
 import { Play, StopSharp } from '@vicons/ionicons5';
-import ScopeChoose from '@/views/scrapy/modules/scope-choose.vue';
 import {
   CreateScrapyItem,
   DeleteScrapyItem,
   DoneTask,
+  GetMarketRuntimeConfig,
   GetNowRunTaskId,
   ReadAllScrapyItems,
   StartTask
 } from '~/wailsjs/go/app/App';
-import { dao } from '~/wailsjs/go/models';
+import { app, dao } from '~/wailsjs/go/models';
 import { getToken } from '@/store/modules/auth/shared';
 import { EventsOn } from '~/wailsjs/runtime/runtime';
+
 const message = useMessage();
-const priceRange = ref([100, 200]);
-const rateRange = ref([50, 100]);
-const seleteOrder = ref('TIME_DESC');
 const loadingBar = useLoadingBar();
+
 interface TimeHash {
-  [key: number]: Date | undefined; // 键是数字，值是 Date 对象
+  [key: number]: Date | undefined;
 }
-const finishTimeHash: Ref<TimeHash> = ref<TimeHash>({});
-const failedTimeHash: Ref<TimeHash> = ref<TimeHash>({});
 
-interface Product {
-  value: string;
-  /** The token */
-  label: string;
-}
-interface Order {
-  value: string;
-  /** The token */
-  label: string;
-}
-const nowIdx = ref<number>(-1);
+const finishTimeHash = ref<TimeHash>({});
+const failedTimeHash = ref<TimeHash>({});
+const nowIdx = ref(-1);
 const scrapyList = ref<dao.ScrapyItem[]>([]);
-const products = ref<Product[]>([
-  { value: '2312', label: '手办' },
-  { value: '2066', label: '模型' },
-  { value: '2331', label: '周边' },
-  { value: '2273', label: '3C' },
-  { value: 'fudai_cate_id', label: '福袋' }
-]);
-const orders = ref<Order[]>([
-  { value: 'TIME_DESC', label: '时间降序' },
-  { value: 'PRICE_ASC', label: '价格升序' },
-  { value: 'PRICE_DESC', label: '价格降序' }
-]);
-const producesNameMap = products.value.reduce<Record<string, string>>((acc, product) => {
-  acc[product.value] = product.label;
-  return acc;
-}, {});
+const runtimeConfig = ref<app.MarketRuntimeConfig | null>(null);
+const selectedProduct = ref('');
+const selectedOrder = ref('TIME_DESC');
+const selectedPriceFilter = ref('');
+const selectedDiscountFilter = ref('');
 
-const ordersNameMap = orders.value.reduce<Record<string, string>>((acc, order) => {
-  acc[order.value] = order.label;
-  return acc;
-}, {});
-const seleteProduct = ref('2312');
-function addScrapy() {
-  if (!seleteProduct.value) {
-    message.error('类型不能为空');
-    return;
+const productOptions = computed(() => runtimeConfig.value?.categories ?? []);
+const orderOptions = computed(() => runtimeConfig.value?.sorts ?? []);
+const priceFilterOptions = computed(() => runtimeConfig.value?.priceFilters ?? []);
+const discountFilterOptions = computed(() => runtimeConfig.value?.discountFilters ?? []);
+
+const sourceNotice = computed(() => {
+  if (!runtimeConfig.value || runtimeConfig.value.source !== 'fallback') return '';
+  return runtimeConfig.value.message || '当前使用内置筛选配置';
+});
+
+function getOptionLabel(options: app.MarketFilterOption[], value: string) {
+  if (value === '') return '不限';
+  return options.find(option => option.value === value)?.label || value || '不限';
+}
+
+function displayLabel(label: string) {
+  return label || '不限';
+}
+
+async function loadRuntimeConfig() {
+  const config = await GetMarketRuntimeConfig(getToken());
+  runtimeConfig.value = config;
+
+  if (!selectedProduct.value && config.categories.length > 0) {
+    selectedProduct.value = config.categories[0].value;
   }
-  const item = dao.ScrapyItem.createFrom({
-    priceRange: priceRange.value.slice(),
-    rateRange: rateRange.value.slice(),
-    product: seleteProduct.value!,
-    order: seleteOrder.value!,
+  if (!selectedOrder.value && config.sorts.length > 0) {
+    selectedOrder.value = config.sorts[0].value;
+  }
+}
+
+function createScrapyPayload() {
+  return dao.ScrapyItem.createFrom({
+    product: selectedProduct.value,
+    productName: getOptionLabel(productOptions.value, selectedProduct.value),
+    order: selectedOrder.value,
+    priceFilter: selectedPriceFilter.value,
+    priceFilterLabel: getOptionLabel(priceFilterOptions.value, selectedPriceFilter.value),
+    discountFilter: selectedDiscountFilter.value,
+    discountFilterLabel: getOptionLabel(discountFilterOptions.value, selectedDiscountFilter.value),
     nums: 0,
     increaseNumber: 0,
     nextToken: ''
   });
+}
+
+function addScrapy() {
+  const item = createScrapyPayload();
   CreateScrapyItem(item).then(id => {
     if (id === -1) {
       message.error('添加失败');
@@ -88,7 +95,7 @@ function addScrapy() {
 
 function handleClose(idx: number) {
   if (nowIdx.value !== -1) {
-    message.warning(`请先关闭爬虫`);
+    message.warning('请先关闭当前爬虫任务');
     return;
   }
   loadingBar.start();
@@ -97,17 +104,18 @@ function handleClose(idx: number) {
       getAllItems().then(value => {
         scrapyList.value = value.slice();
         loadingBar.finish();
-        message.success(`删除成功`);
+        message.success('删除成功');
       });
     })
     .catch(() => {
       loadingBar.error();
-      message.error(`删除失败`);
+      message.error('删除失败');
     });
 }
+
 function handleRun(idx: number) {
   if (nowIdx.value === idx) {
-    message.warning(`已启动`);
+    message.warning('该任务已在运行');
     return;
   }
   loadingBar.start();
@@ -115,62 +123,65 @@ function handleRun(idx: number) {
     .then(() => {
       nowIdx.value = idx;
       loadingBar.finish();
-      message.success(`启动成功`);
+      message.success('启动成功');
     })
-    .catch(() => {
+    .catch(err => {
       loadingBar.error();
-      message.error(`启动失败`);
+      message.error(err?.message || '启动失败');
     });
 }
 
-function handldStop(idx: number) {
+function handldStop(id: number) {
   loadingBar.start();
-  DoneTask(idx)
+  DoneTask(id)
     .then(() => {
       nowIdx.value = -1;
       loadingBar.finish();
-      message.success(`已停止`);
+      message.success('已停止');
     })
     .catch(() => {
       loadingBar.error();
-      message.error(`停止失败`);
+      message.error('停止失败');
     });
 }
 
 async function getAllItems() {
   const result = await ReadAllScrapyItems();
-  return result.slice(); // Return a shallow copy of the result
+  return result.slice();
 }
-EventsOn('updateScrapyItem', c => {
-  const item = c as dao.ScrapyItem;
+
+EventsOn('updateScrapyItem', payload => {
+  const item = dao.ScrapyItem.createFrom(payload);
   const idx = scrapyList.value.findIndex(it => it.id === item.id);
-  scrapyList.value[idx] = c;
+  scrapyList.value[idx] = item;
   nowIdx.value = idx;
 });
-EventsOn('scrapy_failed', c => {
-  message.error(`任务失败，可能是由于风控，请稍后再试`);
-  const idx = c as number;
-  const now = new Date();
-  failedTimeHash.value[idx] = now;
-  nowIdx.value = -1;
-});
-EventsOn('scrapy_finished', c => {
-  const idx = c as number;
-  const now = new Date();
-  finishTimeHash.value[idx] = now;
+
+EventsOn('scrapy_failed', payload => {
+  message.error('任务失败，请检查登录状态或稍后重试');
+  const id = payload as number;
+  failedTimeHash.value[id] = new Date();
   nowIdx.value = -1;
 });
 
-EventsOn('scrapy_wait', c => {
-  const second = c as number;
-  message.warning(`出现风控，等待${second}秒`);
+EventsOn('scrapy_finished', payload => {
+  const id = payload as number;
+  finishTimeHash.value[id] = new Date();
+  nowIdx.value = -1;
+});
+
+EventsOn('scrapy_wait', payload => {
+  const second = payload as number;
+  message.warning(`出现风控，等待 ${second} 秒后继续`);
 });
 
 EventsOn('scrapyItem_get_failed', _ => {
-  message.warning(`当前爬取配置有问题`);
+  message.warning('当前爬取配置读取失败');
 });
+
 onMounted(async () => {
   loadingBar.start();
+  await loadRuntimeConfig();
   scrapyList.value = await getAllItems();
   const nowRunTaskId = await GetNowRunTaskId();
   scrapyList.value.forEach((item, index) => {
@@ -184,7 +195,11 @@ onMounted(async () => {
 
 <template>
   <NSpace vertical size="large">
-    <NCard class="card-wrapper" title="添加爬取类型">
+    <NAlert v-if="sourceNotice" title="筛选配置提醒" type="warning">
+      {{ sourceNotice }}
+    </NAlert>
+
+    <NCard class="card-wrapper" title="添加爬取任务">
       <template #header-extra>
         <NButton @click="addScrapy">
           <template #icon>
@@ -193,75 +208,67 @@ onMounted(async () => {
           添加
         </NButton>
       </template>
+
       <NSpace vertical size="large">
-        <NCollapse default-expanded-names="3">
-          <NCollapseItem title="价格">
-            <NFlex>
-              <NInputNumber v-model:value="priceRange[0]" :precision="2">
-                <template #suffix>元</template>
-              </NInputNumber>
-              <NInputNumber v-model:value="priceRange[1]" :precision="2">
-                <template #suffix>元</template>
-              </NInputNumber>
-            </NFlex>
-            <template #header-extra>价格范围：{{ priceRange[0] }} 到 {{ priceRange[1] }} 元</template>
+        <NCollapse default-expanded-names="category">
+          <NCollapseItem title="类型" name="category">
+            <NSelect
+              v-model:value="selectedProduct"
+              :options="productOptions"
+              label-field="label"
+              value-field="value"
+              placeholder="选择类型"
+            />
+            <template #header-extra>{{ getOptionLabel(productOptions, selectedProduct) }}</template>
           </NCollapseItem>
-          <NCollapseItem title="折扣">
-            <ScopeChoose v-model:value="rateRange"></ScopeChoose>
-            <template #header-extra>折扣范围：{{ rateRange[0] }} 到 {{ rateRange[1] }} %</template>
+
+          <NCollapseItem title="顺序" name="order">
+            <NSelect
+              v-model:value="selectedOrder"
+              :options="orderOptions"
+              label-field="label"
+              value-field="value"
+              placeholder="选择顺序"
+            />
+            <template #header-extra>{{ getOptionLabel(orderOptions, selectedOrder) }}</template>
           </NCollapseItem>
-          <NCollapseItem title="类型" name="3">
-            <NFlex>
-              <NRadioGroup v-model:value="seleteProduct" name="productType">
-                <NRadioButton
-                  v-for="product in products"
-                  :key="product.value"
-                  :value="product.value"
-                  :label="product.label"
-                />
-              </NRadioGroup>
-            </NFlex>
-            <template #header-extra>选择类型： {{ producesNameMap[seleteProduct ?? '无'] ?? '无' }}</template>
+
+          <NCollapseItem title="价格筛选" name="price">
+            <NSelect
+              v-model:value="selectedPriceFilter"
+              :options="priceFilterOptions"
+              label-field="label"
+              value-field="value"
+              placeholder="选择价格筛选"
+            />
+            <template #header-extra>{{ getOptionLabel(priceFilterOptions, selectedPriceFilter) }}</template>
           </NCollapseItem>
-          <NCollapseItem title="顺序" name="3">
-            <NFlex>
-              <NRadioGroup v-model:value="seleteOrder" name="productType">
-                <NRadioButton v-for="order in orders" :key="order.value" :value="order.value" :label="order.label" />
-              </NRadioGroup>
-            </NFlex>
-            <template #header-extra>顺序： {{ ordersNameMap[seleteOrder ?? '无'] ?? '无' }}</template>
+
+          <NCollapseItem title="折扣筛选" name="discount">
+            <NSelect
+              v-model:value="selectedDiscountFilter"
+              :options="discountFilterOptions"
+              label-field="label"
+              value-field="value"
+              placeholder="选择折扣筛选"
+            />
+            <template #header-extra>{{ getOptionLabel(discountFilterOptions, selectedDiscountFilter) }}</template>
           </NCollapseItem>
         </NCollapse>
       </NSpace>
     </NCard>
 
     <NCard class="running-card" title="当前运行">
-      <NEmpty v-if="nowIdx === -1" description="暂无"></NEmpty>
-      <div v-if="nowIdx !== -1">
+      <NEmpty v-if="nowIdx === -1" description="暂无" />
+      <div v-else>
         <NSpace justify="space-around" size="large">
-          <NStatistic label="类型" :value="producesNameMap[scrapyList[nowIdx].product]"></NStatistic>
-          <NStatistic label="爬取顺序" :value="ordersNameMap[scrapyList[nowIdx].order]"></NStatistic>
-          <NStatistic
-            label="折扣"
-            :value="`${scrapyList[nowIdx].rateRange[0]}~${scrapyList[nowIdx].rateRange[1]}`"
-            :tabular-nums="true"
-          ></NStatistic>
-          <NStatistic
-            label="价格"
-            :value="`${scrapyList[nowIdx].priceRange[0]}~${scrapyList[nowIdx].priceRange[1]}`"
-            :tabular-nums="true"
-          ></NStatistic>
-          <NStatistic label="爬取次数" :value="scrapyList[nowIdx].nums"></NStatistic>
-          <NStatistic label="增加数目" :value="scrapyList[nowIdx].increaseNumber"></NStatistic>
-          <NButton
-            class="custom-button"
-            strong
-            ghost
-            circle
-            round
-            size="large"
-            @click="() => handldStop(scrapyList[nowIdx].id)"
-          >
+          <NStatistic label="类型" :value="scrapyList[nowIdx].productName" />
+          <NStatistic label="爬取顺序" :value="getOptionLabel(orderOptions, scrapyList[nowIdx].order)" />
+          <NStatistic label="折扣" :value="displayLabel(scrapyList[nowIdx].discountFilterLabel)" />
+          <NStatistic label="价格" :value="displayLabel(scrapyList[nowIdx].priceFilterLabel)" />
+          <NStatistic label="爬取次数" :value="scrapyList[nowIdx].nums" />
+          <NStatistic label="增加数目" :value="scrapyList[nowIdx].increaseNumber" />
+          <NButton class="custom-button" strong ghost circle round size="large" @click="() => handldStop(scrapyList[nowIdx].id)">
             <template #icon>
               <NIcon><StopSharp /></NIcon>
             </template>
@@ -272,32 +279,23 @@ onMounted(async () => {
 
     <NCard
       v-for="(scrapy, idx) in scrapyList"
-      :key="idx"
-      :value="idx"
-      :title="`${producesNameMap[scrapy.product]} ${ordersNameMap[scrapy.order]}`"
+      :key="scrapy.id"
+      :title="`${scrapy.productName} ${getOptionLabel(orderOptions, scrapy.order)}`"
       closable
       @close="() => handleClose(idx)"
     >
       <NSpace vertical size="large">
-        <NAlert v-if="finishTimeHash[scrapyList[idx].id]" title="执行完成" type="success">
-          完成时间：{{ finishTimeHash[scrapyList[idx].id] }}
+        <NAlert v-if="finishTimeHash[scrapy.id]" title="执行完成" type="success">
+          完成时间：{{ finishTimeHash[scrapy.id] }}
         </NAlert>
-        <NAlert v-if="failedTimeHash[scrapyList[idx].id]" title="执行失败" type="error">
-          错误时间：{{ failedTimeHash[scrapyList[idx].id] }}
+        <NAlert v-if="failedTimeHash[scrapy.id]" title="执行失败" type="error">
+          错误时间：{{ failedTimeHash[scrapy.id] }}
         </NAlert>
         <NSpace justify="space-around" size="large">
-          <NStatistic
-            label="折扣"
-            :value="`${scrapy.rateRange[0]}~${scrapy.rateRange[1]}`"
-            :tabular-nums="true"
-          ></NStatistic>
-          <NStatistic
-            label="价格"
-            :value="`${scrapy.priceRange[0]}~${scrapy.priceRange[1]}`"
-            :tabular-nums="true"
-          ></NStatistic>
-          <NStatistic label="爬取次数" :value="scrapy.nums"></NStatistic>
-          <NStatistic label="增加数目" :value="scrapy.increaseNumber"></NStatistic>
+          <NStatistic label="折扣" :value="displayLabel(scrapy.discountFilterLabel)" />
+          <NStatistic label="价格" :value="displayLabel(scrapy.priceFilterLabel)" />
+          <NStatistic label="爬取次数" :value="scrapy.nums" />
+          <NStatistic label="增加数目" :value="scrapy.increaseNumber" />
           <NButton class="custom-button" strong ghost circle round size="large" @click="() => handleRun(idx)">
             <template #icon>
               <NIcon><Play /></NIcon>
@@ -319,12 +317,14 @@ onMounted(async () => {
 .custom-button {
   margin-top: 12px;
 }
+
 .custom-time {
   color: gray;
 }
+
 .running-card {
-  background-color: #dbf5ca; /* 自定义背景颜色 */
-  color: #333; /* 自定义文本颜色 */
-  border: 1px solid #ccc; /* 自定义边框颜色 */
+  background-color: #dbf5ca;
+  color: #333;
+  border: 1px solid #ccc;
 }
 </style>
