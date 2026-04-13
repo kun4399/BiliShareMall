@@ -25,6 +25,23 @@ Windows 推荐使用 `installer.exe` 结尾的安装包。
 - 桌面端：继续通过 Wails 构建本地桌面 app。
 - 网页端：通过 Go HTTP 服务提供同一套前端页面与 API，默认监听 `3754`，适合远程服务器部署。
 
+## 自动发布
+
+- `push` 到 `main` 会自动更新一个滚动 GitHub Release：`main-latest`
+- 该 Release 会覆盖上传桌面端构建产物：
+  - `BiliShareMall-windows-amd64.zip`
+  - `BiliShareMall-darwin-amd64.zip`
+  - `BiliShareMall-darwin-arm64.zip`
+- 同一次 workflow 会推送网页版 Docker 镜像到 Docker Hub：`kun4399/bilisharemall`
+- Docker 镜像标签默认包含：
+  - `latest`
+  - `sha-<short_sha>`
+
+启用自动发布前，请在 GitHub 仓库配置以下 Secrets：
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+
 ## 环境要求
 
 - Go `>= 1.23`（与当前 `go.mod` 保持一致）
@@ -113,6 +130,12 @@ wails build -tags fts5 -nsis
 make build-web
 ```
 
+Docker 镜像：
+
+```bash
+docker build -t kun4399/bilisharemall:latest .
+```
+
 ## 构建产物路径
 
 - macOS: `build/bin/BiliShareMall.app`
@@ -126,6 +149,34 @@ make build-web
 - `BSM_DATA_DIR`：数据目录覆盖路径
 - `BSM_BASE_PATH`：资源根目录覆盖路径，调试或自定义部署目录时可用
 - `BSM_WEB_ROOT`：网页静态资源目录覆盖路径，默认自动查找 `frontend/dist`
+
+## Docker Compose 部署
+
+默认部署文件已提供：
+
+- `docker-compose.yml`
+- `.env.example`
+
+推荐部署步骤：
+
+```bash
+cp .env.example .env
+docker compose up -d
+```
+
+默认配置说明：
+
+- 镜像：`kun4399/bilisharemall:latest`
+- 端口映射：`3754:3754`
+- 数据目录映射：`./data:/data`
+
+宿主机 `./data` 目录会持久化以下运行数据：
+
+- `bsm.db`
+- `app.log`
+- `dict/...`
+
+迁移或备份服务器时，保留 `./data` 目录即可。
 
 ## 常见问题
 

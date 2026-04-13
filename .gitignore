@@ -114,6 +114,8 @@ main_local_test.go
 frontend/wailsjs/runtime/runtime.js
 frontend/wailsjs/runtime/runtime.d.ts
 .cache/
+.env
+data/
 
 # local IDE/project metadata
 .idea/

@@ -1,0 +1,11 @@
+services:
+  bilisharemall:
+    image: kun4399/bilisharemall:latest
+    container_name: bilisharemall
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "3754:3754"
+    volumes:
+      - ./data:/data

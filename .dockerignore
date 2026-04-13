@@ -1,0 +1,16 @@
+.git
+.github
+.cache
+.env
+build/bin
+frontend/node_modules
+frontend/dist
+data
+dist
+node_modules
+*.log
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.DS_Store

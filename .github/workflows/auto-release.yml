@@ -1,0 +1,189 @@
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_NAME: BiliShareMall
+  WEB_APP_NAME: BiliShareMallWeb
+  ROLLING_TAG: main-latest
+  DOCKER_IMAGE: kun4399/bilisharemall
+  WAILS_VERSION: v2.9.2
+
+jobs:
+  prepare-release:
+    name: Prepare rolling tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update rolling release tag
+        run: |
+          git tag -f "${ROLLING_TAG}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${ROLLING_TAG}" --force
+
+  desktop-release:
+    name: Desktop release (${{ matrix.build.id }})
+    needs: prepare-release
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        build:
+          - id: windows-amd64
+            os: windows-latest
+            goos: windows
+            goarch: amd64
+            archive_name: BiliShareMall-windows-amd64.zip
+          - id: darwin-amd64
+            os: macos-latest
+            goos: darwin
+            goarch: amd64
+            archive_name: BiliShareMall-darwin-amd64.zip
+          - id: darwin-arm64
+            os: macos-latest
+            goos: darwin
+            goarch: arm64
+            archive_name: BiliShareMall-darwin-arm64.zip
+    runs-on: ${{ matrix.build.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm --dir frontend install --frozen-lockfile
+
+      - name: Install Wails CLI
+        shell: bash
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Update macOS Wails activation policy patch
+        if: runner.os == 'macOS'
+        run: |
+          go mod vendor
+          sed -i "" "s/\[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular\]/[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory]/g" vendor/github.com/wailsapp/wails/v2/internal/frontend/desktop/darwin/AppDelegate.m
+
+      - name: Build frontend
+        run: pnpm --dir frontend build
+
+      - name: Build Windows desktop app
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          GOOS: ${{ matrix.build.goos }}
+          GOARCH: ${{ matrix.build.goarch }}
+        run: |
+          "${HOME}/go/bin/wails" build -m -s -trimpath -skipbindings -nsis -tags fts5 -o "${APP_NAME}.exe"
+
+      - name: Build macOS desktop app
+        if: runner.os == 'macOS'
+        env:
+          GOOS: ${{ matrix.build.goos }}
+          GOARCH: ${{ matrix.build.goarch }}
+        run: |
+          "${HOME}/go/bin/wails" build -m -s -trimpath -skipbindings -tags fts5 -o "${APP_NAME}"
+
+      - name: Package Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "./build/bin/${{ env.APP_NAME }}-${{ matrix.build.goarch }}-installer.exe" -DestinationPath "./build/bin/${{ matrix.build.archive_name }}" -Force
+
+      - name: Package macOS archive
+        if: runner.os == 'macOS'
+        run: |
+          cd build/bin
+          cp -r ../../dict "./${APP_NAME}.app/Contents/MacOS/dict"
+          ditto -c -k --sequesterRsrc --keepParent "${APP_NAME}.app" "${{ matrix.build.archive_name }}"
+
+      - name: Upload release asset
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./build/bin/${{ matrix.build.archive_name }}
+          asset_name: ${{ matrix.build.archive_name }}
+          tag: ${{ env.ROLLING_TAG }}
+          release_name: ${{ env.ROLLING_TAG }}
+          overwrite: true
+          draft: false
+          prerelease: false
+          body: |
+            Rolling desktop release for the latest push on `main`.
+            Docker images are published separately to `${{ env.DOCKER_IMAGE }}`.
+
+  docker-publish:
+    name: Docker publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short,prefix=sha-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
