@@ -14,6 +14,10 @@ export function DoneTask(arg1) {
   return window['go']['app']['App']['DoneTask'](arg1);
 }
 
+export function GetC2CItemNameBySku(arg1) {
+  return window['go']['app']['App']['GetC2CItemNameBySku'](arg1);
+}
+
 export function GetLoginKeyAndUrl() {
   return window['go']['app']['App']['GetLoginKeyAndUrl']();
 }

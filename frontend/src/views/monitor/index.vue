@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useLoadingBar, useMessage } from 'naive-ui';
 import { scrapy } from '~/wailsjs/go/models';
-import { GetMonitorConfig, SaveMonitorConfig } from '~/wailsjs/go/app/App';
+import { GetC2CItemNameBySku, GetMonitorConfig, SaveMonitorConfig } from '~/wailsjs/go/app/App';
 
 interface MonitorRuleForm {
+  key: number;
   id: number;
   skuId: number | null;
   minPriceYuan: number | null;
   maxPriceYuan: number | null;
   enabled: boolean;
-  remark: string;
+  skuName: string;
+  skuNameLoading: boolean;
+  skuLookupSeq: number;
 }
 
 const message = useMessage();
@@ -18,21 +21,94 @@ const loadingBar = useLoadingBar();
 
 const webhook = ref('');
 const rules = ref<MonitorRuleForm[]>([]);
+const skuLookupTimerMap = new Map<number, ReturnType<typeof setTimeout>>();
+let ruleKeySeed = 1;
 
 const enabledRuleCount = computed(() => rules.value.filter(rule => rule.enabled).length);
 
+function createRuleForm(partial?: Partial<MonitorRuleForm>): MonitorRuleForm {
+  return {
+    key: ruleKeySeed++,
+    id: partial?.id ?? 0,
+    skuId: partial?.skuId ?? null,
+    minPriceYuan: partial?.minPriceYuan ?? null,
+    maxPriceYuan: partial?.maxPriceYuan ?? null,
+    enabled: partial?.enabled ?? true,
+    skuName: '',
+    skuNameLoading: false,
+    skuLookupSeq: 0
+  };
+}
+
 function addRule() {
-  rules.value.push({
-    id: 0,
-    skuId: null,
-    minPriceYuan: null,
-    maxPriceYuan: null,
-    enabled: true,
-    remark: ''
-  });
+  rules.value.push(createRuleForm());
+}
+
+function clearSkuLookupTimer(key: number) {
+  const timer = skuLookupTimerMap.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    skuLookupTimerMap.delete(key);
+  }
+}
+
+async function lookupSkuName(rule: MonitorRuleForm) {
+  const skuId = Number(rule.skuId ?? 0);
+  if (skuId <= 0) {
+    rule.skuName = '';
+    rule.skuNameLoading = false;
+    return;
+  }
+
+  rule.skuNameLoading = true;
+  rule.skuLookupSeq += 1;
+  const currentSeq = rule.skuLookupSeq;
+
+  try {
+    const name = (await GetC2CItemNameBySku(skuId)).trim();
+    if (rule.skuLookupSeq !== currentSeq) {
+      return;
+    }
+    rule.skuName = name;
+  } catch (err) {
+    if (rule.skuLookupSeq !== currentSeq) {
+      return;
+    }
+    rule.skuName = '';
+  } finally {
+    if (rule.skuLookupSeq === currentSeq) {
+      rule.skuNameLoading = false;
+    }
+  }
+}
+
+function queueLookupSkuName(rule: MonitorRuleForm) {
+  clearSkuLookupTimer(rule.key);
+  const timer = setTimeout(() => {
+    skuLookupTimerMap.delete(rule.key);
+    void lookupSkuName(rule);
+  }, 280);
+  skuLookupTimerMap.set(rule.key, timer);
+}
+
+function getSkuNameDisplayText(rule: MonitorRuleForm) {
+  if (rule.skuNameLoading) {
+    return '查询中...';
+  }
+  if (!rule.skuId || rule.skuId <= 0) {
+    return '输入 SKU 后自动显示';
+  }
+  if (rule.skuName) {
+    return rule.skuName;
+  }
+  return '未找到商品名（可能尚未入库）';
 }
 
 function removeRule(index: number) {
+  const rule = rules.value[index];
+  if (rule) {
+    clearSkuLookupTimer(rule.key);
+  }
   rules.value.splice(index, 1);
 }
 
@@ -68,14 +144,19 @@ async function loadConfig() {
   try {
     const config = await GetMonitorConfig();
     webhook.value = config.webhook || '';
-    rules.value = (config.rules || []).map(rule => ({
-      id: rule.id || 0,
-      skuId: rule.skuId || null,
-      minPriceYuan: toYuan(rule.minPrice || 0),
-      maxPriceYuan: toYuan(rule.maxPrice || 0),
-      enabled: rule.enabled ?? true,
-      remark: rule.remark || ''
-    }));
+    const loadedRules = (config.rules || []).map(rule =>
+      createRuleForm({
+        id: rule.id || 0,
+        skuId: rule.skuId || null,
+        minPriceYuan: toYuan(rule.minPrice || 0),
+        maxPriceYuan: toYuan(rule.maxPrice || 0),
+        enabled: rule.enabled ?? true
+      })
+    );
+    rules.value = loadedRules;
+    loadedRules.forEach(rule => {
+      void lookupSkuName(rule);
+    });
   } catch (err: any) {
     message.error(err?.message || '读取配置失败');
   } finally {
@@ -103,8 +184,7 @@ async function saveConfig() {
         skuId: Number(rule.skuId),
         minPrice: toCents(Number(rule.minPriceYuan)),
         maxPrice: toCents(Number(rule.maxPriceYuan)),
-        enabled: rule.enabled,
-        remark: rule.remark.trim()
+        enabled: rule.enabled
       })
     )
   });
@@ -124,6 +204,13 @@ async function saveConfig() {
 
 onMounted(() => {
   loadConfig();
+});
+
+onUnmounted(() => {
+  skuLookupTimerMap.forEach(timer => {
+    clearTimeout(timer);
+  });
+  skuLookupTimerMap.clear();
 });
 </script>
 
@@ -160,7 +247,7 @@ onMounted(() => {
       <NSpace v-else vertical size="large">
         <NCard
           v-for="(rule, idx) in rules"
-          :key="`${rule.id}-${idx}`"
+          :key="rule.key"
           size="small"
           :title="`规则 #${idx + 1}`"
         >
@@ -175,7 +262,14 @@ onMounted(() => {
           </template>
           <NGrid :cols="3" :x-gap="12" :y-gap="12">
             <NFormItemGi label="SKU ID">
-              <NInputNumber v-model:value="rule.skuId" :min="1" :precision="0" placeholder="如 123456" />
+              <NInputNumber
+                v-model:value="rule.skuId"
+                :min="1"
+                :precision="0"
+                placeholder="如 123456"
+                @update:value="() => queueLookupSkuName(rule)"
+                @blur="() => lookupSkuName(rule)"
+              />
             </NFormItemGi>
             <NFormItemGi label="最低价（元）">
               <NInputNumber v-model:value="rule.minPriceYuan" :min="0" :precision="2" placeholder="如 99.00" />
@@ -183,13 +277,8 @@ onMounted(() => {
             <NFormItemGi label="最高价（元）">
               <NInputNumber v-model:value="rule.maxPriceYuan" :min="0" :precision="2" placeholder="如 199.00" />
             </NFormItemGi>
-            <NFormItemGi label="备注" :span="3">
-              <NInput
-                v-model:value="rule.remark"
-                placeholder="可填写用途说明（例如：自用观察）"
-                maxlength="80"
-                show-count
-              />
+            <NFormItemGi label="商品名" :span="3">
+              <NText :depth="rule.skuName ? 2 : 3">{{ getSkuNameDisplayText(rule) }}</NText>
             </NFormItemGi>
           </NGrid>
         </NCard>

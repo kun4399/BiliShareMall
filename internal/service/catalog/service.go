@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"runtime/debug"
@@ -101,6 +102,17 @@ func (s *Service) ListC2CItem(page, pageSize int, filterName string, sortOption 
 		TotalPages:  calcTotalPages(total, pageSize),
 		CurrentPage: page,
 	}, nil
+}
+
+func (s *Service) GetC2CItemNameBySku(skuID int64) (string, error) {
+	meta, err := s.d.GetC2CItemGroupMeta(skuID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return meta.C2CItemsName, nil
 }
 
 func (s *Service) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOption int, statusFilter, cookieStr string) (ret C2CItemDetailListVO, err error) {

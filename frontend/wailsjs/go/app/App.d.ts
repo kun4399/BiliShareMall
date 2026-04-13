@@ -11,6 +11,8 @@ export function DeleteScrapyItem(arg1:number):Promise<void>;
 
 export function DoneTask(arg1:number):Promise<void>;
 
+export function GetC2CItemNameBySku(arg1:number):Promise<string>;
+
 export function GetLoginKeyAndUrl():Promise<auth.LoginInfo>;
 
 export function GetMarketRuntimeConfig(arg1:string):Promise<scrapy.MarketRuntimeConfig>;

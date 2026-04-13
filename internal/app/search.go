@@ -11,6 +11,10 @@ func (a *App) ListC2CItem(page, pageSize int, filterName string, sortOption int,
 	return a.getCatalogService().ListC2CItem(page, pageSize, filterName, sortOption, startTime, endTime, fromPrice, toPrice)
 }
 
+func (a *App) GetC2CItemNameBySku(skuID int64) (string, error) {
+	return a.getCatalogService().GetC2CItemNameBySku(skuID)
+}
+
 func (a *App) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOption int, statusFilter, cookieStr string) (C2CItemDetailListVO, error) {
 	return a.getCatalogService().ListC2CItemDetailBySku(skuID, page, pageSize, sortOption, statusFilter, cookieStr)
 }
