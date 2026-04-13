@@ -22,6 +22,20 @@ type MonitorConfig struct {
 	Rules   []MonitorRule `json:"rules"`
 }
 
+type MonitorAlertEvent struct {
+	RuleID       int64  `json:"ruleId"`
+	C2CItemsID   int64  `json:"c2cItemsId"`
+	TaskID       int    `json:"taskId"`
+	SkuID        int64  `json:"skuId"`
+	ItemName     string `json:"itemName"`
+	Price        int    `json:"price"`
+	ShowPrice    string `json:"showPrice"`
+	ItemLink     string `json:"itemLink"`
+	Status       string `json:"status"`
+	ErrorMessage string `json:"errorMessage"`
+	OccurredAt   int64  `json:"occurredAt"`
+}
+
 func (d *Database) GetMonitorConfig() (MonitorConfig, error) {
 	config := MonitorConfig{
 		Webhook: "",
@@ -80,6 +94,7 @@ func (d *Database) SaveMonitorConfig(config MonitorConfig) error {
 	}
 
 	keptIDs := make([]int64, 0, len(config.Rules))
+	resetHistorySet := map[int64]struct{}{}
 	for _, rule := range config.Rules {
 		if rule.SkuID <= 0 {
 			return fmt.Errorf("invalid skuId: %d", rule.SkuID)
@@ -97,6 +112,20 @@ func (d *Database) SaveMonitorConfig(config MonitorConfig) error {
 		remark := strings.TrimSpace(rule.Remark)
 
 		if rule.ID > 0 {
+			var oldSkuID int64
+			var oldMinPrice int
+			var oldMaxPrice int
+			var oldEnabled int
+			loadErr := tx.QueryRowContext(
+				context.Background(),
+				`SELECT sku_id, min_price, max_price, enabled FROM monitor_rules WHERE id = ?`,
+				rule.ID,
+			).Scan(&oldSkuID, &oldMinPrice, &oldMaxPrice, &oldEnabled)
+			if loadErr != nil && loadErr != sql.ErrNoRows {
+				return loadErr
+			}
+			hasOldRule := loadErr == nil
+
 			result, execErr := tx.ExecContext(
 				context.Background(),
 				`UPDATE monitor_rules
@@ -117,6 +146,9 @@ func (d *Database) SaveMonitorConfig(config MonitorConfig) error {
 				return rowsErr
 			}
 			if affected > 0 {
+				if hasOldRule && (oldSkuID != rule.SkuID || oldMinPrice != rule.MinPrice || oldMaxPrice != rule.MaxPrice || oldEnabled != enabled) {
+					resetHistorySet[rule.ID] = struct{}{}
+				}
 				keptIDs = append(keptIDs, rule.ID)
 				continue
 			}
@@ -148,6 +180,9 @@ func (d *Database) SaveMonitorConfig(config MonitorConfig) error {
 		if _, err = tx.ExecContext(context.Background(), `DELETE FROM monitor_alert_history`); err != nil {
 			return err
 		}
+		if _, err = tx.ExecContext(context.Background(), `DELETE FROM monitor_alert_events`); err != nil {
+			return err
+		}
 	} else {
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(keptIDs)), ",")
 		args := make([]any, 0, len(keptIDs))
@@ -159,7 +194,21 @@ func (d *Database) SaveMonitorConfig(config MonitorConfig) error {
 			return err
 		}
 	}
+	resetRuleIDs := make([]int64, 0, len(resetHistorySet))
+	for id := range resetHistorySet {
+		resetRuleIDs = append(resetRuleIDs, id)
+	}
+	if err = deleteMonitorRowsByRuleIDsTx(tx, "monitor_alert_history", resetRuleIDs); err != nil {
+		return err
+	}
+	if err = deleteMonitorRowsByRuleIDsTx(tx, "monitor_alert_events", resetRuleIDs); err != nil {
+		return err
+	}
+
 	if _, err = tx.ExecContext(context.Background(), `DELETE FROM monitor_alert_history WHERE rule_id NOT IN (SELECT id FROM monitor_rules)`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(context.Background(), `DELETE FROM monitor_alert_events WHERE rule_id NOT IN (SELECT id FROM monitor_rules)`); err != nil {
 		return err
 	}
 
@@ -283,5 +332,91 @@ func (d *Database) ReleaseMonitorAlertReservation(ruleID, c2cItemsID int64) erro
 		ruleID,
 		c2cItemsID,
 	)
+	return err
+}
+
+func (d *Database) CreateMonitorAlertEvent(event MonitorAlertEvent) error {
+	_, err := d.Db.ExecContext(
+		context.Background(),
+		`INSERT INTO monitor_alert_events(
+			rule_id, c2c_items_id, task_id, sku_id, item_name, price, show_price, item_link, status, error_message
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.RuleID,
+		event.C2CItemsID,
+		event.TaskID,
+		event.SkuID,
+		strings.TrimSpace(event.ItemName),
+		event.Price,
+		strings.TrimSpace(event.ShowPrice),
+		strings.TrimSpace(event.ItemLink),
+		strings.TrimSpace(event.Status),
+		strings.TrimSpace(event.ErrorMessage),
+	)
+	return err
+}
+
+func (d *Database) ReadMonitorAlertEventsByRule(ruleID int64, limit int) ([]MonitorAlertEvent, error) {
+	if ruleID <= 0 {
+		return []MonitorAlertEvent{}, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+
+	rows, err := d.Db.QueryContext(
+		context.Background(),
+		`SELECT
+			rule_id, c2c_items_id, COALESCE(task_id, 0), COALESCE(sku_id, 0),
+			item_name, COALESCE(price, 0), show_price, item_link, status, error_message,
+			COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) AS occurred_at
+		FROM monitor_alert_events
+		WHERE rule_id = ?
+		ORDER BY created_at DESC, id DESC
+		LIMIT ?`,
+		ruleID,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := make([]MonitorAlertEvent, 0)
+	for rows.Next() {
+		var event MonitorAlertEvent
+		if err := rows.Scan(
+			&event.RuleID,
+			&event.C2CItemsID,
+			&event.TaskID,
+			&event.SkuID,
+			&event.ItemName,
+			&event.Price,
+			&event.ShowPrice,
+			&event.ItemLink,
+			&event.Status,
+			&event.ErrorMessage,
+			&event.OccurredAt,
+		); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func deleteMonitorRowsByRuleIDsTx(tx *sql.Tx, tableName string, ruleIDs []int64) error {
+	if len(ruleIDs) == 0 {
+		return nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ruleIDs)), ",")
+	args := make([]any, 0, len(ruleIDs))
+	for _, id := range ruleIDs {
+		args = append(args, id)
+	}
+	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE rule_id IN (%s)", tableName, placeholders)
+	_, err := tx.ExecContext(context.Background(), deleteSQL, args...)
 	return err
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -50,6 +51,26 @@ func (n *HTTPDingTalkNotifier) SendMarkdown(ctx context.Context, webhook, title,
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("dingtalk webhook returned status %d", resp.StatusCode)
+	}
+
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read dingtalk response failed: %w", err)
+	}
+	trimmed := strings.TrimSpace(string(payload))
+	if trimmed == "" {
+		return nil
+	}
+
+	var response struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+	}
+	if err := json.Unmarshal(payload, &response); err != nil {
+		return fmt.Errorf("decode dingtalk response failed: %w", err)
+	}
+	if response.ErrCode != 0 {
+		return fmt.Errorf("dingtalk webhook rejected: errcode=%d errmsg=%s", response.ErrCode, strings.TrimSpace(response.ErrMsg))
 	}
 	return nil
 }

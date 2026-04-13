@@ -19,6 +19,7 @@ func TestHTTPDingTalkNotifierSendsMarkdownPayload(t *testing.T) {
 			t.Fatalf("decode request body failed: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
 	}))
 	defer server.Close()
 
@@ -40,5 +41,19 @@ func TestHTTPDingTalkNotifierSendsMarkdownPayload(t *testing.T) {
 	}
 	if markdown["text"] == "" {
 		t.Fatal("expected markdown text to be non-empty")
+	}
+}
+
+func TestHTTPDingTalkNotifierReturnsErrorWhenErrCodeNonZero(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"errcode":310000,"errmsg":"keywords not in content"}`))
+	}))
+	defer server.Close()
+
+	notifier := NewHTTPDingTalkNotifier()
+	err := notifier.SendMarkdown(context.Background(), server.URL, "市集助手", "### 市集助手")
+	if err == nil {
+		t.Fatal("expected SendMarkdown to fail when errcode is non-zero")
 	}
 }

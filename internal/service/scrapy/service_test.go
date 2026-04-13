@@ -29,15 +29,16 @@ func (m *mockMarketClient) ListMarketItems(ctx context.Context, _ *bilihttp.Bili
 }
 
 type mockNotifier struct {
-	mu    sync.Mutex
-	calls int
+	mu      sync.Mutex
+	calls   int
+	lastErr error
 }
 
 func (m *mockNotifier) SendMarkdown(_ context.Context, _ string, _ string, _ string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
-	return nil
+	return m.lastErr
 }
 
 func TestServiceSupportsConcurrentTasksAndIndependentStop(t *testing.T) {
@@ -221,6 +222,165 @@ func TestServiceEmitsRoundFinishedAndRestartsFromFirstPage(t *testing.T) {
 	}
 }
 
+func TestTrySendMonitorAlertsMatchesAnyDetailSkuAndRecordsSentEvent(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+	svc := NewService(db, nil)
+	notify := &mockNotifier{}
+	svc.notifier = notify
+
+	if err := db.SaveMonitorConfig(dao.MonitorConfig{
+		Webhook: "https://oapi.dingtalk.com/robot/send?access_token=abc",
+		Rules: []dao.MonitorRule{
+			{SkuID: 2002, MinPrice: 1000, MaxPrice: 2000, Enabled: true, Remark: "multi-sku"},
+		},
+	}); err != nil {
+		t.Fatalf("SaveMonitorConfig error: %v", err)
+	}
+	config, err := db.GetMonitorConfig()
+	if err != nil {
+		t.Fatalf("GetMonitorConfig error: %v", err)
+	}
+	ruleID := config.Rules[0].ID
+
+	item := domain.MarketItem{
+		C2CItemsID:   9001,
+		C2CItemsName: "商品A",
+		Price:        1500,
+		ShowPrice:    "15.00",
+		DetailDtoList: []struct {
+			BlindBoxID  int    `json:"blindBoxId"`
+			ItemsID     int    `json:"itemsId"`
+			SkuID       int    `json:"skuId"`
+			Name        string `json:"name"`
+			Img         string `json:"img"`
+			MarketPrice int    `json:"marketPrice"`
+			Type        int    `json:"type"`
+			IsHidden    bool   `json:"isHidden"`
+		}{
+			{SkuID: 1001, Name: "规格-1"},
+			{SkuID: 2002, Name: "规格-2"},
+		},
+	}
+
+	svc.trySendMonitorAlerts(7, []domain.MarketItem{item})
+
+	if notify.calls != 1 {
+		t.Fatalf("expected notifier called once, got %d", notify.calls)
+	}
+	var sentCount int
+	if err := db.Db.QueryRow(
+		`SELECT COUNT(*) FROM monitor_alert_history WHERE rule_id = ? AND c2c_items_id = ? AND sent = 1`,
+		ruleID,
+		item.C2CItemsID,
+	).Scan(&sentCount); err != nil {
+		t.Fatalf("query monitor_alert_history error: %v", err)
+	}
+	if sentCount != 1 {
+		t.Fatalf("expected sent history row count 1, got %d", sentCount)
+	}
+
+	events, err := db.ReadMonitorAlertEventsByRule(ruleID, 10)
+	if err != nil {
+		t.Fatalf("ReadMonitorAlertEventsByRule error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected one alert event, got %d", len(events))
+	}
+	if events[0].Status != monitorAlertStatusSent {
+		t.Fatalf("expected sent status, got %s", events[0].Status)
+	}
+	if events[0].SkuID != 2002 {
+		t.Fatalf("expected sku 2002, got %d", events[0].SkuID)
+	}
+}
+
+func TestTrySendMonitorAlertsOnSendFailureReleasesReservationAndStoresFailedEvent(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+
+	receivedEvents := make([]MonitorHitItem, 0)
+	var eventMu sync.Mutex
+	svc := NewService(db, func(eventName string, payload any) {
+		if eventName != "monitor_alert_result" {
+			return
+		}
+		eventMu.Lock()
+		defer eventMu.Unlock()
+		receivedEvents = append(receivedEvents, payload.(MonitorHitItem))
+	})
+	notify := &mockNotifier{lastErr: errors.New("dingtalk rejected")}
+	svc.notifier = notify
+
+	if err := db.SaveMonitorConfig(dao.MonitorConfig{
+		Webhook: "https://oapi.dingtalk.com/robot/send?access_token=abc",
+		Rules: []dao.MonitorRule{
+			{SkuID: 3003, MinPrice: 1000, MaxPrice: 2000, Enabled: true, Remark: "send-fail"},
+		},
+	}); err != nil {
+		t.Fatalf("SaveMonitorConfig error: %v", err)
+	}
+	config, err := db.GetMonitorConfig()
+	if err != nil {
+		t.Fatalf("GetMonitorConfig error: %v", err)
+	}
+	ruleID := config.Rules[0].ID
+
+	item := domain.MarketItem{
+		C2CItemsID:   9011,
+		C2CItemsName: "商品B",
+		Price:        1800,
+		ShowPrice:    "18.00",
+		DetailDtoList: []struct {
+			BlindBoxID  int    `json:"blindBoxId"`
+			ItemsID     int    `json:"itemsId"`
+			SkuID       int    `json:"skuId"`
+			Name        string `json:"name"`
+			Img         string `json:"img"`
+			MarketPrice int    `json:"marketPrice"`
+			Type        int    `json:"type"`
+			IsHidden    bool   `json:"isHidden"`
+		}{
+			{SkuID: 3003, Name: "规格-fail"},
+		},
+	}
+
+	svc.trySendMonitorAlerts(8, []domain.MarketItem{item})
+
+	var historyCount int
+	if err := db.Db.QueryRow(
+		`SELECT COUNT(*) FROM monitor_alert_history WHERE rule_id = ? AND c2c_items_id = ?`,
+		ruleID,
+		item.C2CItemsID,
+	).Scan(&historyCount); err != nil {
+		t.Fatalf("query monitor_alert_history error: %v", err)
+	}
+	if historyCount != 0 {
+		t.Fatalf("expected reservation released on failure, got history count %d", historyCount)
+	}
+
+	storedEvents, err := db.ReadMonitorAlertEventsByRule(ruleID, 10)
+	if err != nil {
+		t.Fatalf("ReadMonitorAlertEventsByRule error: %v", err)
+	}
+	if len(storedEvents) != 1 {
+		t.Fatalf("expected one stored failed event, got %d", len(storedEvents))
+	}
+	if storedEvents[0].Status != monitorAlertStatusFailed {
+		t.Fatalf("expected failed status, got %s", storedEvents[0].Status)
+	}
+	if !strings.Contains(storedEvents[0].ErrorMessage, "dingtalk rejected") {
+		t.Fatalf("expected error message persisted, got %q", storedEvents[0].ErrorMessage)
+	}
+
+	eventMu.Lock()
+	defer eventMu.Unlock()
+	if len(receivedEvents) != 1 {
+		t.Fatalf("expected one emitted event, got %d", len(receivedEvents))
+	}
+	if receivedEvents[0].Status != monitorAlertStatusFailed {
+		t.Fatalf("expected emitted failed status, got %s", receivedEvents[0].Status)
+	}
+}
+
 func fakeListResponseWithNext(next *string) domain.MailListResponse {
 	resp := domain.MailListResponse{}
 	resp.Code = 0
@@ -357,6 +517,22 @@ CREATE TABLE monitor_alert_history
     sent_at      DATETIME,
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(rule_id, c2c_items_id)
+);
+
+CREATE TABLE monitor_alert_events
+(
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id       INTEGER NOT NULL,
+    c2c_items_id  INTEGER NOT NULL,
+    task_id       INTEGER,
+    sku_id        INTEGER NOT NULL DEFAULT 0,
+    item_name     TEXT    NOT NULL DEFAULT '',
+    price         INTEGER NOT NULL DEFAULT 0,
+    show_price    TEXT    NOT NULL DEFAULT '',
+    item_link     TEXT    NOT NULL DEFAULT '',
+    status        TEXT    NOT NULL,
+    error_message TEXT    NOT NULL DEFAULT '',
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );`
 
 func TestBuildDingTalkMarkdownHasTitleLinkAndPrice(t *testing.T) {

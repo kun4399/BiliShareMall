@@ -16,9 +16,13 @@ import (
 )
 
 const (
-	taskRetryDelay        = 10 * time.Second
-	taskRequestInterval   = 3 * time.Second
-	taskRestartRoundDelay = 1 * time.Second
+	taskRetryDelay                = 10 * time.Second
+	taskRequestInterval           = 3 * time.Second
+	taskRestartRoundDelay         = 1 * time.Second
+	defaultMonitorHitLimitPerRule = 20
+
+	monitorAlertStatusSent   = "sent"
+	monitorAlertStatusFailed = "failed"
 )
 
 type TaskRuntime struct {
@@ -53,6 +57,25 @@ type MonitorRule struct {
 type MonitorConfig struct {
 	Webhook string        `json:"webhook"`
 	Rules   []MonitorRule `json:"rules"`
+}
+
+type MonitorHitItem struct {
+	RuleID       int64  `json:"ruleId"`
+	TaskID       int    `json:"taskId"`
+	C2CItemsID   int64  `json:"c2cItemsId"`
+	SkuID        int64  `json:"skuId"`
+	ItemName     string `json:"itemName"`
+	Price        int    `json:"price"`
+	ShowPrice    string `json:"showPrice"`
+	ItemLink     string `json:"itemLink"`
+	Status       string `json:"status"`
+	ErrorMessage string `json:"errorMessage"`
+	OccurredAt   int64  `json:"occurredAt"`
+}
+
+type MonitorHitGroup struct {
+	RuleID int64            `json:"ruleId"`
+	Hits   []MonitorHitItem `json:"hits"`
 }
 
 type C2CItemsChangedEvent struct {
@@ -246,6 +269,40 @@ func (s *Service) SaveMonitorConfig(config MonitorConfig) error {
 	return s.d.SaveMonitorConfig(toDAOMonitorConfig(config))
 }
 
+func (s *Service) ListMonitorRuleHits(limitPerRule int) []MonitorHitGroup {
+	if limitPerRule <= 0 {
+		limitPerRule = defaultMonitorHitLimitPerRule
+	}
+
+	config, err := s.d.GetMonitorConfig()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to read monitor config for hits")
+		return []MonitorHitGroup{}
+	}
+
+	groups := make([]MonitorHitGroup, 0, len(config.Rules))
+	for _, rule := range config.Rules {
+		events, readErr := s.d.ReadMonitorAlertEventsByRule(rule.ID, limitPerRule)
+		if readErr != nil {
+			log.Error().Err(readErr).Int64("ruleID", rule.ID).Msg("failed to read monitor hits")
+			groups = append(groups, MonitorHitGroup{
+				RuleID: rule.ID,
+				Hits:   []MonitorHitItem{},
+			})
+			continue
+		}
+		hits := make([]MonitorHitItem, 0, len(events))
+		for _, event := range events {
+			hits = append(hits, toMonitorHitItem(event))
+		}
+		groups = append(groups, MonitorHitGroup{
+			RuleID: rule.ID,
+			Hits:   hits,
+		})
+	}
+	return groups
+}
+
 func (s *Service) scrapyLoop(taskID int, cookies string, ctx context.Context) {
 	defer s.wg.Done()
 	defer s.unregisterTask(taskID)
@@ -375,44 +432,72 @@ func (s *Service) trySendMonitorAlerts(taskID int, items []domain.MarketItem) {
 	}
 
 	for _, item := range items {
-		name, skuID := pickMonitorNameAndSku(item)
-		if skuID == 0 {
+		candidateDetails := pickMonitorCandidates(item)
+		if len(candidateDetails) == 0 {
 			continue
 		}
-		candidates := rulesBySku[skuID]
-		if len(candidates) == 0 {
-			continue
-		}
-		for _, rule := range candidates {
-			if item.Price < rule.MinPrice || item.Price > rule.MaxPrice {
+		seenRules := make(map[int64]struct{})
+		for _, candidate := range candidateDetails {
+			candidates := rulesBySku[candidate.SkuID]
+			if len(candidates) == 0 {
 				continue
 			}
+			for _, rule := range candidates {
+				if _, duplicated := seenRules[rule.ID]; duplicated {
+					continue
+				}
+				seenRules[rule.ID] = struct{}{}
 
-			reserved, reserveErr := s.d.ReserveMonitorAlert(rule.ID, item.C2CItemsID, taskID)
-			if reserveErr != nil {
-				log.Error().Err(reserveErr).Int64("ruleID", rule.ID).Int64("itemID", item.C2CItemsID).Msg("reserve monitor alert failed")
-				continue
-			}
-			if !reserved {
-				continue
-			}
+				if item.Price < rule.MinPrice || item.Price > rule.MaxPrice {
+					continue
+				}
 
-			if name == "" {
-				name = strings.TrimSpace(item.C2CItemsName)
-			}
-			displayPrice := strings.TrimSpace(item.ShowPrice)
-			if displayPrice == "" {
-				displayPrice = fmt.Sprintf("%.2f", float64(item.Price)/100)
-			}
-			text := buildDingTalkMarkdown(name, displayPrice, buildItemLink(item.C2CItemsID))
-			sendErr := s.notifier.SendMarkdown(context.Background(), webhook, "市集助手", text)
-			if sendErr != nil {
-				_ = s.d.ReleaseMonitorAlertReservation(rule.ID, item.C2CItemsID)
-				log.Error().Err(sendErr).Int64("ruleID", rule.ID).Int64("itemID", item.C2CItemsID).Msg("send dingtalk alert failed")
-				continue
-			}
-			if err := s.d.MarkMonitorAlertSent(rule.ID, item.C2CItemsID, time.Now()); err != nil {
-				log.Error().Err(err).Int64("ruleID", rule.ID).Int64("itemID", item.C2CItemsID).Msg("mark monitor alert sent failed")
+				reserved, reserveErr := s.d.ReserveMonitorAlert(rule.ID, item.C2CItemsID, taskID)
+				if reserveErr != nil {
+					log.Error().Err(reserveErr).Int64("ruleID", rule.ID).Int64("itemID", item.C2CItemsID).Msg("reserve monitor alert failed")
+					continue
+				}
+				if !reserved {
+					continue
+				}
+
+				name := pickItemName(candidate.Name, item.C2CItemsName)
+				displayPrice := normalizeDisplayPrice(item.ShowPrice, item.Price)
+				itemLink := buildItemLink(item.C2CItemsID)
+				text := buildDingTalkMarkdown(name, displayPrice, itemLink)
+				sendErr := s.notifier.SendMarkdown(context.Background(), webhook, "市集助手", text)
+				if sendErr != nil {
+					_ = s.d.ReleaseMonitorAlertReservation(rule.ID, item.C2CItemsID)
+					s.recordAndEmitMonitorHit(dao.MonitorAlertEvent{
+						RuleID:       rule.ID,
+						C2CItemsID:   item.C2CItemsID,
+						TaskID:       taskID,
+						SkuID:        candidate.SkuID,
+						ItemName:     name,
+						Price:        item.Price,
+						ShowPrice:    displayPrice,
+						ItemLink:     itemLink,
+						Status:       monitorAlertStatusFailed,
+						ErrorMessage: sendErr.Error(),
+					})
+					log.Error().Err(sendErr).Int64("ruleID", rule.ID).Int64("itemID", item.C2CItemsID).Msg("send dingtalk alert failed")
+					continue
+				}
+				if err := s.d.MarkMonitorAlertSent(rule.ID, item.C2CItemsID, time.Now()); err != nil {
+					log.Error().Err(err).Int64("ruleID", rule.ID).Int64("itemID", item.C2CItemsID).Msg("mark monitor alert sent failed")
+				}
+				s.recordAndEmitMonitorHit(dao.MonitorAlertEvent{
+					RuleID:       rule.ID,
+					C2CItemsID:   item.C2CItemsID,
+					TaskID:       taskID,
+					SkuID:        candidate.SkuID,
+					ItemName:     name,
+					Price:        item.Price,
+					ShowPrice:    displayPrice,
+					ItemLink:     itemLink,
+					Status:       monitorAlertStatusSent,
+					ErrorMessage: "",
+				})
 			}
 		}
 	}
@@ -519,12 +604,86 @@ func sleepWithContext(ctx context.Context, duration time.Duration) bool {
 	}
 }
 
-func pickMonitorNameAndSku(item domain.MarketItem) (string, int64) {
-	if len(item.DetailDtoList) > 0 {
-		detail := item.DetailDtoList[0]
-		return strings.TrimSpace(detail.Name), int64(detail.SkuID)
+func (s *Service) recordAndEmitMonitorHit(event dao.MonitorAlertEvent) {
+	if event.Status == "" {
+		event.Status = monitorAlertStatusFailed
 	}
-	return strings.TrimSpace(item.C2CItemsName), 0
+	if err := s.d.CreateMonitorAlertEvent(event); err != nil {
+		log.Error().Err(err).
+			Int64("ruleID", event.RuleID).
+			Int64("itemID", event.C2CItemsID).
+			Str("status", event.Status).
+			Msg("create monitor alert event failed")
+	}
+	s.emitEvent("monitor_alert_result", toMonitorHitItem(event))
+}
+
+func toMonitorHitItem(event dao.MonitorAlertEvent) MonitorHitItem {
+	occurredAt := event.OccurredAt
+	if occurredAt == 0 {
+		occurredAt = time.Now().UnixMilli()
+	}
+	return MonitorHitItem{
+		RuleID:       event.RuleID,
+		TaskID:       event.TaskID,
+		C2CItemsID:   event.C2CItemsID,
+		SkuID:        event.SkuID,
+		ItemName:     strings.TrimSpace(event.ItemName),
+		Price:        event.Price,
+		ShowPrice:    strings.TrimSpace(event.ShowPrice),
+		ItemLink:     strings.TrimSpace(event.ItemLink),
+		Status:       strings.TrimSpace(event.Status),
+		ErrorMessage: strings.TrimSpace(event.ErrorMessage),
+		OccurredAt:   occurredAt,
+	}
+}
+
+type monitorCandidate struct {
+	SkuID int64
+	Name  string
+}
+
+func pickMonitorCandidates(item domain.MarketItem) []monitorCandidate {
+	if len(item.DetailDtoList) == 0 {
+		return []monitorCandidate{}
+	}
+	candidates := make([]monitorCandidate, 0, len(item.DetailDtoList))
+	seenSkuIDs := map[int64]struct{}{}
+	for _, detail := range item.DetailDtoList {
+		skuID := int64(detail.SkuID)
+		if skuID <= 0 {
+			continue
+		}
+		if _, exists := seenSkuIDs[skuID]; exists {
+			continue
+		}
+		seenSkuIDs[skuID] = struct{}{}
+		candidates = append(candidates, monitorCandidate{
+			SkuID: skuID,
+			Name:  strings.TrimSpace(detail.Name),
+		})
+	}
+	return candidates
+}
+
+func pickItemName(detailName, itemName string) string {
+	name := strings.TrimSpace(detailName)
+	if name != "" {
+		return name
+	}
+	name = strings.TrimSpace(itemName)
+	if name == "" {
+		return "未知商品"
+	}
+	return name
+}
+
+func normalizeDisplayPrice(showPrice string, price int) string {
+	displayPrice := strings.TrimSpace(showPrice)
+	if displayPrice != "" {
+		return displayPrice
+	}
+	return fmt.Sprintf("%.2f", float64(price)/100)
 }
 
 func buildItemLink(c2cItemsID int64) string {

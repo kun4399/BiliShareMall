@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS c2c_items
     updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_id
+    ON c2c_items(sku_id);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS c2c_fts USING fts5
 (
     c2c_items_name,
@@ -124,3 +127,23 @@ CREATE TABLE IF NOT EXISTS monitor_alert_history
     UNIQUE(rule_id, c2c_items_id),
     FOREIGN KEY(rule_id) REFERENCES monitor_rules(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS monitor_alert_events
+(
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id       INTEGER NOT NULL,
+    c2c_items_id  INTEGER NOT NULL,
+    task_id       INTEGER,
+    sku_id        INTEGER NOT NULL DEFAULT 0,
+    item_name     TEXT    NOT NULL DEFAULT '',
+    price         INTEGER NOT NULL DEFAULT 0,
+    show_price    TEXT    NOT NULL DEFAULT '',
+    item_link     TEXT    NOT NULL DEFAULT '',
+    status        TEXT    NOT NULL,
+    error_message TEXT    NOT NULL DEFAULT '',
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(rule_id) REFERENCES monitor_rules(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_monitor_alert_events_rule_time
+    ON monitor_alert_events(rule_id, created_at DESC, id DESC);

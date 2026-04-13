@@ -106,13 +106,28 @@ func (s *Service) ListC2CItem(page, pageSize int, filterName string, sortOption 
 }
 
 func (s *Service) GetC2CItemNameBySku(skuID int64) (string, error) {
+	if skuID <= 0 {
+		return "", nil
+	}
+	cacheStore := s.c
+	if cacheStore == nil {
+		cacheStore = cache.New(5*time.Minute, 10*time.Minute)
+		s.c = cacheStore
+	}
+	cacheKey := fmt.Sprintf("sku-name:%d", skuID)
+	if cached, found := cacheStore.Get(cacheKey); found {
+		return cached.(string), nil
+	}
+
 	meta, err := s.d.GetC2CItemGroupMeta(skuID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			cacheStore.SetDefault(cacheKey, "")
 			return "", nil
 		}
 		return "", err
 	}
+	cacheStore.SetDefault(cacheKey, meta.C2CItemsName)
 	return meta.C2CItemsName, nil
 }
 

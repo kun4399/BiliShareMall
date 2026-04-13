@@ -27,6 +27,8 @@ export function ListC2CItem(arg1:number,arg2:number,arg3:string,arg4:number,arg5
 
 export function ListC2CItemDetailBySku(arg1:number,arg2:number,arg3:number,arg4:number,arg5:string,arg6:string):Promise<catalog.C2CItemDetailListVO>;
 
+export function ListMonitorRuleHits(arg1:number):Promise<Array<scrapy.MonitorHitGroup>>;
+
 export function ReadAllScrapyItems():Promise<Array<dao.ScrapyItem>>;
 
 export function SaveMonitorConfig(arg1:scrapy.MonitorConfig):Promise<void>;

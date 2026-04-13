@@ -46,6 +46,10 @@ export function ListC2CItemDetailBySku(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['app']['App']['ListC2CItemDetailBySku'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
+export function ListMonitorRuleHits(arg1) {
+  return window['go']['app']['App']['ListMonitorRuleHits'](arg1);
+}
+
 export function ReadAllScrapyItems() {
   return window['go']['app']['App']['ReadAllScrapyItems']();
 }

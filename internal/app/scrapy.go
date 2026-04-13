@@ -9,6 +9,8 @@ type MarketFilterOption = scrapysvc.MarketFilterOption
 type MarketRuntimeConfig = scrapysvc.MarketRuntimeConfig
 type MonitorRule = scrapysvc.MonitorRule
 type MonitorConfig = scrapysvc.MonitorConfig
+type MonitorHitItem = scrapysvc.MonitorHitItem
+type MonitorHitGroup = scrapysvc.MonitorHitGroup
 
 func (a *App) ReadAllScrapyItems() []dao.ScrapyItem {
 	return a.getScrapyService().ReadAllScrapyItems()
@@ -48,4 +50,8 @@ func (a *App) GetMonitorConfig() MonitorConfig {
 
 func (a *App) SaveMonitorConfig(config MonitorConfig) error {
 	return a.getScrapyService().SaveMonitorConfig(config)
+}
+
+func (a *App) ListMonitorRuleHits(limitPerRule int) []MonitorHitGroup {
+	return a.getScrapyService().ListMonitorRuleHits(limitPerRule)
 }
