@@ -76,3 +76,17 @@ type CheckResponse struct {
 		} `json:"orderItems"`
 	} `json:"data"`
 }
+
+type C2CItemDetailStatus struct {
+	C2CItemsID    int64  `json:"c2cItemsId"`
+	PublishStatus *int   `json:"publishStatus,omitempty"`
+	Status        *int   `json:"status,omitempty"`
+	SaleStatus    *int   `json:"saleStatus,omitempty"`
+	DropReason    string `json:"dropReason,omitempty"`
+}
+
+type C2CItemDetailResponse struct {
+	Code    int                 `json:"code"`
+	Message string              `json:"message"`
+	Data    C2CItemDetailStatus `json:"data"`
+}

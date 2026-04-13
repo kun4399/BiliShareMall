@@ -192,9 +192,12 @@ func (d *Database) CreateCSCItem(item *CSCItem) (int64, error) {
 			publish_time = excluded.publish_time,
 			is_my_publish = excluded.is_my_publish,
 			uface = excluded.uface,
-			raw_status = excluded.raw_status,
-			raw_sale_status = excluded.raw_sale_status,
-			normalized_status = excluded.normalized_status,
+			raw_status = COALESCE(excluded.raw_status, c2c_items.raw_status),
+			raw_sale_status = COALESCE(excluded.raw_sale_status, c2c_items.raw_sale_status),
+			normalized_status = CASE
+				WHEN excluded.raw_status IS NULL AND excluded.raw_sale_status IS NULL THEN c2c_items.normalized_status
+				ELSE excluded.normalized_status
+			END,
 			updated_at = CURRENT_TIMESTAMP`,
 		item.C2CItemsID,
 		item.Type,

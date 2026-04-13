@@ -130,7 +130,8 @@ func TestSaveMailListToDBUpsertsAndGroupsBySku(t *testing.T) {
 					"isMyPublish": false,
 					"uface": "face-a",
 					"uname": "卖家A-更新",
-					"saleStatus": 1
+					"status": 2,
+					"saleStatus": 2
 				}
 			]
 		}
@@ -192,6 +193,107 @@ func TestSaveMailListToDBUpsertsAndGroupsBySku(t *testing.T) {
 	}
 	if filteredTotal != 1 || len(filtered) != 1 {
 		t.Fatalf("expected one sold-out item, got total=%d len=%d", filteredTotal, len(filtered))
+	}
+}
+
+func TestSaveMailListToDBKeepsStatusWhenRawFieldsMissing(t *testing.T) {
+	db := newTestDatabase(t)
+
+	withRaw := mustMarketListResponse(t, `{
+		"code": 0,
+		"message": "success",
+		"data": {
+			"data": [
+				{
+					"c2cItemsId": 301,
+					"type": 1,
+					"c2cItemsName": "测试商品",
+					"detailDtoList": [
+						{
+							"blindBoxId": 3,
+							"itemsId": 3001,
+							"skuId": 9301,
+							"name": "测试商品",
+							"img": "//img-c.png",
+							"marketPrice": 9900,
+							"type": 0,
+							"isHidden": false
+						}
+					],
+					"totalItemsCount": 1,
+					"price": 5000,
+					"showPrice": "50",
+					"showMarketPrice": "99",
+					"uid": "88***8",
+					"paymentTime": 1710020000000,
+					"isMyPublish": false,
+					"uface": "face-raw",
+					"uname": "卖家Raw",
+					"status": 2,
+					"saleStatus": 2
+				}
+			]
+		}
+	}`)
+
+	withoutRaw := mustMarketListResponse(t, `{
+		"code": 0,
+		"message": "success",
+		"data": {
+			"data": [
+				{
+					"c2cItemsId": 301,
+					"type": 1,
+					"c2cItemsName": "测试商品",
+					"detailDtoList": [
+						{
+							"blindBoxId": 3,
+							"itemsId": 3001,
+							"skuId": 9301,
+							"name": "测试商品",
+							"img": "//img-c-2.png",
+							"marketPrice": 9900,
+							"type": 0,
+							"isHidden": false
+						}
+					],
+					"totalItemsCount": 1,
+					"price": 4900,
+					"showPrice": "49",
+					"showMarketPrice": "99",
+					"uid": "88***8",
+					"paymentTime": 1710023600000,
+					"isMyPublish": false,
+					"uface": "face-raw",
+					"uname": "卖家Raw-更新"
+				}
+			]
+		}
+	}`)
+
+	if rows := db.SaveMailListToDB(&withRaw); rows != 1 {
+		t.Fatalf("expected 1 row affected on first save, got %d", rows)
+	}
+	if rows := db.SaveMailListToDB(&withoutRaw); rows != 1 {
+		t.Fatalf("expected 1 row affected on second save, got %d", rows)
+	}
+
+	details, total, err := db.ReadC2CItemDetailsBySku(9301, 1, 10, 1, "")
+	if err != nil {
+		t.Fatalf("ReadC2CItemDetailsBySku error: %v", err)
+	}
+	if total != 1 || len(details) != 1 {
+		t.Fatalf("expected exactly one detail row, total=%d len=%d", total, len(details))
+	}
+
+	if details[0].RawStatus == nil || *details[0].RawStatus != 2 {
+		t.Fatalf("expected raw_status to be preserved as 2, got %+v", details[0].RawStatus)
+	}
+	if details[0].RawSaleStatus == nil || *details[0].RawSaleStatus != 2 {
+		t.Fatalf("expected raw_sale_status to be preserved as 2, got %+v", details[0].RawSaleStatus)
+	}
+	if details[0].NormalizedStatus != StatusSoldOut {
+		t.Fatalf("expected normalized status to remain sold-out, got %s", details[0].NormalizedStatus)
 	}
 }
 

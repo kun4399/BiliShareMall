@@ -154,6 +154,32 @@ func (c *BiliClient) CheckC2CItem(ctx context.Context, session *BiliSession, ite
 	return resp, nil
 }
 
+func (c *BiliClient) QueryC2CItemDetail(ctx context.Context, session *BiliSession, itemID int64) (domain.C2CItemDetailResponse, error) {
+	var resp domain.C2CItemDetailResponse
+	query := neturl.Values{}
+	query.Set("c2cItemsId", fmt.Sprintf("%d", itemID))
+	if session != nil && session.CSRF() != "" {
+		query.Set("csrf", session.CSRF())
+	}
+
+	err := c.DoJSON(
+		ctx,
+		GET,
+		marketBaseURL+"/internet/c2c/items/queryC2cItemsDetail",
+		query,
+		nil,
+		c.marketHeaders(session, fmt.Sprintf("%s&itemsId=%d", marketReferer, itemID)),
+		&resp,
+	)
+	if err != nil {
+		return resp, err
+	}
+	if apiErr := classifyMarketError(resp.Code, resp.Message); apiErr != nil {
+		return resp, apiErr
+	}
+	return resp, nil
+}
+
 func normalizeFilterList(values []string) []string {
 	if len(values) == 0 {
 		return []string{}

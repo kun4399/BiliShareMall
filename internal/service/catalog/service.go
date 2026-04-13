@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"time"
@@ -124,7 +125,7 @@ func (s *Service) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOp
 		return C2CItemDetailListVO{}, err
 	}
 
-	if cookieStr != "" && statusFilter != "" {
+	if statusFilter != "" {
 		allItems, readErr := s.d.ReadAllC2CItemDetailsBySku(skuID)
 		if readErr == nil {
 			if _, refreshErr := s.refreshDetailStatuses(allItems, cookieStr, true); refreshErr != nil {
@@ -139,7 +140,7 @@ func (s *Service) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOp
 		return C2CItemDetailListVO{}, err
 	}
 
-	if cookieStr != "" && statusFilter == "" {
+	if statusFilter == "" {
 		changed, refreshErr := s.refreshDetailStatuses(items, cookieStr, true)
 		if refreshErr != nil {
 			log.Warn().Err(refreshErr).Int64("skuId", skuID).Msg("failed to refresh current page item statuses")
@@ -183,16 +184,15 @@ func (s *Service) refreshDetailStatuses(items []dao.CSCItem, cookieStr string, f
 	var firstErr error
 
 	for _, item := range items {
-		canBuy, err := s.checkItemStatus(item.C2CItemsID, item.Price, cookieStr, forceRefresh)
+		status, err := s.resolveItemStatus(item, cookieStr, forceRefresh)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
-			log.Error().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to check item status")
+			log.Warn().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to refresh item status")
 			continue
 		}
 
-		status := dao.NormalizeMarketStatus(item.RawStatus, item.RawSaleStatus, &canBuy)
 		if err := s.d.UpdateC2CItemStatus(item.C2CItemsID, status, time.Now()); err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -206,6 +206,66 @@ func (s *Service) refreshDetailStatuses(items []dao.CSCItem, cookieStr string, f
 	}
 
 	return changed, firstErr
+}
+
+func (s *Service) resolveItemStatus(item dao.CSCItem, cookieStr string, forceRefresh bool) (string, error) {
+	detailStatus, detailErr := s.checkItemStatusFromDetail(item.C2CItemsID, cookieStr, forceRefresh)
+	if detailErr == nil {
+		return detailStatus, nil
+	}
+
+	if cookieStr == "" {
+		return "", detailErr
+	}
+
+	canBuy, fallbackErr := s.checkItemStatus(item.C2CItemsID, item.Price, cookieStr, forceRefresh)
+	if fallbackErr == nil {
+		return dao.NormalizeMarketStatus(item.RawStatus, item.RawSaleStatus, &canBuy), nil
+	}
+
+	return "", fmt.Errorf("detail check failed: %w; fallback check failed: %v", detailErr, fallbackErr)
+}
+
+func (s *Service) checkItemStatusFromDetail(id int64, cookieStr string, forceRefresh bool) (string, error) {
+	cacheStore := s.c
+	if cacheStore == nil {
+		cacheStore = cache.New(5*time.Minute, 10*time.Minute)
+		s.c = cacheStore
+	}
+
+	cacheKey := fmt.Sprintf("detail-status:%d", id)
+	if !forceRefresh {
+		if result, found := cacheStore.Get(cacheKey); found {
+			return result.(string), nil
+		}
+	} else {
+		cacheStore.Delete(cacheKey)
+	}
+
+	if result, found := cacheStore.Get(cacheKey); found {
+		return result.(string), nil
+	}
+
+	client, err := bilihttp.NewBiliClient()
+	if err != nil {
+		return "", err
+	}
+
+	session := bilihttp.ParseBiliSession(cookieStr)
+	resp, err := client.QueryC2CItemDetail(context.Background(), session, id)
+	if err != nil {
+		return "", err
+	}
+
+	status := dao.NormalizeMarketStatusFromDetail(
+		resp.Data.PublishStatus,
+		resp.Data.Status,
+		resp.Data.SaleStatus,
+		resp.Data.DropReason,
+	)
+	cacheStore.Set(cacheKey, status, cache.DefaultExpiration)
+	time.Sleep(150 * time.Millisecond)
+	return status, nil
 }
 
 func (s *Service) checkItemStatus(id int64, price int, cookieStr string, forceRefresh bool) (bool, error) {
@@ -235,13 +295,23 @@ func (s *Service) checkItemStatus(id int64, price int, cookieStr string, forceRe
 
 	resp, err := client.CheckC2CItem(context.Background(), bilihttp.ParseBiliSession(cookieStr), id, price)
 	if err != nil {
+		var apiErr *bilihttp.APIError
+		if errors.As(err, &apiErr) && isExpectedOrderInfoBusinessCode(apiErr.Code) {
+			cacheStore.Set(cacheKey, false, cache.DefaultExpiration)
+			time.Sleep(150 * time.Millisecond)
+			return false, nil
+		}
 		return false, err
 	}
 
-	canBuy := resp.Code != 60000002
+	canBuy := resp.Code == 0
 	cacheStore.Set(cacheKey, canBuy, cache.DefaultExpiration)
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 	return canBuy, nil
+}
+
+func isExpectedOrderInfoBusinessCode(code int) bool {
+	return code >= 60000000 && code < 70000000
 }
 
 func calcTotalPages(total, pageSize int) int {

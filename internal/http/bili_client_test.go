@@ -144,6 +144,59 @@ func TestCheckC2CItemUsesSessionAndPrice(t *testing.T) {
 	}
 }
 
+func TestQueryC2CItemDetailUsesItemIDAndParsesStatusFields(t *testing.T) {
+	var gotMethod string
+	var gotQuery string
+
+	client := &BiliClient{
+		httpClient: &nethttp.Client{
+			Transport: roundTripFunc(func(req *nethttp.Request) (*nethttp.Response, error) {
+				gotMethod = req.Method
+				gotQuery = req.URL.RawQuery
+				return &nethttp.Response{
+					StatusCode: nethttp.StatusOK,
+					Body: io.NopCloser(strings.NewReader(`{
+						"code": 0,
+						"message": "ok",
+						"data": {
+							"c2cItemsId": 123,
+							"publishStatus": 2,
+							"saleStatus": 1,
+							"status": 1,
+							"dropReason": "手动下架"
+						}
+					}`)),
+				}, nil
+			}),
+		},
+		headers: map[string]string{},
+	}
+
+	session := ParseBiliSession("SESSDATA=abc; DedeUserID=1; bili_jct=token")
+	resp, err := client.QueryC2CItemDetail(context.Background(), session, 123)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != GET {
+		t.Fatalf("unexpected method: %s", gotMethod)
+	}
+	if !strings.Contains(gotQuery, "c2cItemsId=123") {
+		t.Fatalf("expected c2cItemsId in query, got %s", gotQuery)
+	}
+	if !strings.Contains(gotQuery, "csrf=token") {
+		t.Fatalf("expected csrf in query, got %s", gotQuery)
+	}
+	if resp.Code != 0 {
+		t.Fatalf("unexpected response code: %d", resp.Code)
+	}
+	if resp.Data.PublishStatus == nil || *resp.Data.PublishStatus != 2 {
+		t.Fatalf("unexpected publishStatus: %+v", resp.Data.PublishStatus)
+	}
+	if resp.Data.DropReason != "手动下架" {
+		t.Fatalf("unexpected dropReason: %s", resp.Data.DropReason)
+	}
+}
+
 func mustQuery(key, value string) neturl.Values {
 	values := neturl.Values{}
 	values.Set(key, value)
