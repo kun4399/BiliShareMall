@@ -1,48 +1,28 @@
 package app
 
 import (
-	"github.com/mikumifa/BiliShareMall/internal/http"
+	authsvc "github.com/mikumifa/BiliShareMall/internal/service/auth"
 	"github.com/rs/zerolog/log"
 )
 
-type LoginInfo struct {
-	Key      string `json:"key"`
-	LoginUrl string `json:"login_url"`
-}
+type LoginInfo = authsvc.LoginInfo
 
 func (a *App) GetLoginKeyAndUrl() LoginInfo {
-	key, loginUrl, err := http.GetLoginKeyAndUrl()
+	loginInfo, err := a.getAuthService().GetLoginKeyAndUrl()
 	if err != nil {
 		log.Error().Err(err).Msg("GetLoginKeyAndUrl error")
 		return LoginInfo{}
 	}
-	loginInfo := LoginInfo{
-		Key:      key,
-		LoginUrl: loginUrl,
-	}
 	return loginInfo
 }
 
-// VerifyLoginResponse 封装登录验证响应的结构体
-type VerifyLoginResponse struct {
-	Status    string `json:"status"`
-	CookieStr string `json:"cookies"`
-	Message   string `json:"message"`
-}
+type VerifyLoginResponse = authsvc.VerifyLoginResponse
 
 func (a *App) VerifyLogin(loginKey string) VerifyLoginResponse {
-	result, err := http.VerifyLogin(loginKey)
+	result, err := a.getAuthService().VerifyLogin(loginKey)
 	if err != nil {
 		log.Error().Err(err).Msg("VerifyLogin error")
-		return VerifyLoginResponse{
-			Status:  string(result.Status),
-			Message: result.Message,
-		}
+		return result
 	}
-	ret := VerifyLoginResponse{
-		Status:    string(result.Status),
-		CookieStr: result.Cookies,
-		Message:   result.Message,
-	}
-	return ret
+	return result
 }

@@ -1,5 +1,5 @@
 TAG_NAME?=$(shell git describe --tags)
-APP_NAME="Chapar"
+APP_NAME="BiliShareMall"
 
 
 .PHONY: run,embed

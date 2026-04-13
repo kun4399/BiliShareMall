@@ -4,9 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"github.com/mikumifa/BiliShareMall/internal/dao"
+	authsvc "github.com/mikumifa/BiliShareMall/internal/service/auth"
+	catalogsvc "github.com/mikumifa/BiliShareMall/internal/service/catalog"
+	scrapysvc "github.com/mikumifa/BiliShareMall/internal/service/scrapy"
 	"github.com/mikumifa/BiliShareMall/internal/util"
 	cache "github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog/log"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"os"
 	"time"
 )
@@ -18,6 +22,10 @@ type App struct {
 	ctx context.Context
 	d   *dao.Database
 	c   *cache.Cache
+
+	authService    *authsvc.Service
+	catalogService *catalogsvc.Service
+	scrapyService  *scrapysvc.Service
 }
 
 // NewApp creates a new App application struct
@@ -49,6 +57,11 @@ func (a *App) Startup(ctx context.Context) {
 	}
 	// 设置超时时间和清理时间
 	a.c = cache.New(5*time.Minute, 10*time.Minute)
+	a.catalogService = catalogsvc.NewService(a.d, a.c)
+	a.authService = authsvc.NewService()
+	a.scrapyService = scrapysvc.NewService(a.d, func(eventName string, payload any) {
+		runtime.EventsEmit(a.ctx, eventName, payload)
+	})
 }
 
 // checkAndCreateDatabase 测试当前数据库的版本号，如果版本号低就重新建库
@@ -75,12 +88,31 @@ func (a *App) checkAndCreateDatabase(nowVersion int) (ret *dao.Database, err err
 			return nil, err
 		}
 		ret = &dao.Database{Db: db}
-		if err != nil {
-			return nil, err
-		}
-		if err != nil {
-			return nil, err
-		}
 	}
 	return ret, nil
+}
+
+func (a *App) getAuthService() *authsvc.Service {
+	if a.authService == nil {
+		a.authService = authsvc.NewService()
+	}
+	return a.authService
+}
+
+func (a *App) getCatalogService() *catalogsvc.Service {
+	if a.catalogService == nil {
+		a.catalogService = catalogsvc.NewService(a.d, a.c)
+	}
+	return a.catalogService
+}
+
+func (a *App) getScrapyService() *scrapysvc.Service {
+	if a.scrapyService == nil {
+		a.scrapyService = scrapysvc.NewService(a.d, func(eventName string, payload any) {
+			if a.ctx != nil {
+				runtime.EventsEmit(a.ctx, eventName, payload)
+			}
+		})
+	}
+	return a.scrapyService
 }

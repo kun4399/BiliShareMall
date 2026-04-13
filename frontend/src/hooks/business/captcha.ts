@@ -8,9 +8,9 @@ export function useCaptcha() {
   const { count, start, stop, isCounting } = useCountDown(10);
 
   const label = computed(() => {
-    let text = $t('page.login.codeLogin.getCode');
+    let text = '获取验证码';
 
-    const countingLabel = $t('page.login.codeLogin.reGetCode', { time: count.value });
+    const countingLabel = `${count.value} 秒后重试`;
 
     if (loading.value) {
       text = '';
@@ -53,7 +53,7 @@ export function useCaptcha() {
       setTimeout(resolve, 500);
     });
 
-    window.$message?.success?.($t('page.login.codeLogin.sendCodeSuccess'));
+    window.$message?.success?.('验证码发送成功');
 
     start();
 

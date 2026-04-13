@@ -1,89 +1,23 @@
 <script setup lang="ts">
 import { Search } from '@vicons/ionicons5';
-import { useMessage } from 'naive-ui';
-import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
-import { ListC2CItem } from '~/wailsjs/go/app/App';
-import type { app } from '~/wailsjs/go/models';
+import { normalizeImage } from '@/features/catalog/shared';
+import { useCatalogList } from '@/features/catalog/useCatalogList';
 
-const router = useRouter();
-const loading = ref(false);
-const message = useMessage();
-const searchText = ref('');
-
-interface SortWay {
-  value: number;
-  label: string;
-}
-
-const sortways = ref<SortWay[]>([
-  { value: 1, label: '最新上架' },
-  { value: 2, label: '最低价升序' },
-  { value: 3, label: '最低价降序' }
-]);
-
-const timeRange = ref<[number, number] | null>([1183135260000, Date.now()]);
-const timeRangeEnable = ref(false);
-const priceRangeEnable = ref(false);
-const priceRange = ref<[number | null, number | null]>([0, 9999]);
-const sortOpt = ref(1);
-const pagination = ref({
-  page: 1,
-  pageCount: 1,
-  pageSize: 12,
-  itemCount: 0
-});
-
-const data = ref<app.C2CItemGroupVO[]>([]);
-
-const emptyDescription = computed(() => {
-  if (loading.value) {
-    return '正在加载商品库';
-  }
-  return '当前筛选条件下暂无商品';
-});
-
-function normalizeImage(url: string) {
-  if (!url) {
-    return '';
-  }
-  if (url.startsWith('//')) {
-    return `https:${url}`;
-  }
-  return url;
-}
-
-function goDetail(item: app.C2CItemGroupVO) {
-  router.push(`/home/${item.skuId}`);
-}
-
-function search(firstPage: boolean = false) {
-  loading.value = true;
-
-  const page = firstPage ? 1 : pagination.value.page;
-  const startTime = timeRangeEnable.value && timeRange.value ? timeRange.value[0] : -1;
-  const endTime = timeRangeEnable.value && timeRange.value ? timeRange.value[1] : -1;
-  const fromPrice = priceRangeEnable.value ? Number(priceRange.value[0] ?? -1) : -1;
-  const toPrice = priceRangeEnable.value ? Number(priceRange.value[1] ?? -1) : -1;
-
-  ListC2CItem(page, pagination.value.pageSize, searchText.value, sortOpt.value, startTime, endTime, fromPrice, toPrice)
-    .then(result => {
-      pagination.value.page = page;
-      pagination.value.pageCount = result.totalPages;
-      pagination.value.itemCount = result.total;
-      data.value = result.items;
-    })
-    .catch(err => {
-      message.error(err?.message || '请求失败');
-    })
-    .finally(() => {
-      loading.value = false;
-    });
-}
-
-onMounted(() => {
-  search();
-});
+const {
+  loading,
+  searchText,
+  timeRange,
+  timeRangeEnable,
+  priceRangeEnable,
+  priceRange,
+  sortOpt,
+  sortways,
+  data,
+  pagination,
+  emptyDescription,
+  goDetail,
+  search
+} = useCatalogList();
 </script>
 
 <template>

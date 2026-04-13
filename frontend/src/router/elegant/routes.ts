@@ -79,7 +79,7 @@ export const generatedRoutes: GeneratedRoute[] = [
   },
   {
     name: 'login',
-    path: '/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?',
+    path: '/login/:module(bili-qrlogin)?',
     component: 'layout.base$view.login',
     props: true,
     meta: {

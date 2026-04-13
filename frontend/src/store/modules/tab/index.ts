@@ -9,6 +9,7 @@ import { localStg } from '@/utils/storage';
 import { useRouteStore } from '@/store/modules/route';
 import { useThemeStore } from '../theme';
 import {
+  canTrackRouteAsTab,
   extractTabsByAllRoutes,
   filterTabsById,
   filterTabsByIds,
@@ -77,6 +78,13 @@ export const useTabStore = defineStore(SetupStoreId.Tab, () => {
    * @param active Whether to activate the added tab
    */
   function addTab(route: App.Global.TabRoute, active = true) {
+    if (!canTrackRouteAsTab(route)) {
+      if (active && homeTab.value) {
+        setActiveTabId(homeTab.value.id);
+      }
+      return;
+    }
+
     const tab = getTabByRoute(route);
 
     const isHomeTab = tab.id === homeTab.value?.id;
@@ -168,7 +176,14 @@ export const useTabStore = defineStore(SetupStoreId.Tab, () => {
   async function switchRouteByTab(tab: App.Global.Tab) {
     const fail = await routerPush(tab.fullPath);
     if (!fail) {
-      setActiveTabId(tab.id);
+      const currentRoute = router.currentRoute.value;
+      if (canTrackRouteAsTab(currentRoute)) {
+        setActiveTabId(getTabIdByRoute(currentRoute));
+        return;
+      }
+      if (homeTab.value) {
+        setActiveTabId(homeTab.value.id);
+      }
     }
   }
 

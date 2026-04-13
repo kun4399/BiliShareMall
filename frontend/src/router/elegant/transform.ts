@@ -169,7 +169,7 @@ const routeMap: RouteMap = {
   "home": "/home",
   "home-detail": "/home/:skuId",
   "iframe-page": "/iframe-page/:url",
-  "login": "/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?",
+  "login": "/login/:module(bili-qrlogin)?",
   "scrapy": "/scrapy"
 };
 

@@ -85,6 +85,24 @@ export function getTabByRoute(route: App.Global.TabRoute) {
 }
 
 /**
+ * Whether the route should be tracked as a tab
+ *
+ * Constant routes (e.g. login / exception pages) are intentionally excluded to
+ * avoid route-guard redirects causing tab and content mismatch.
+ */
+export function canTrackRouteAsTab(route: App.Global.TabRoute) {
+  if (route.meta?.constant) {
+    return false;
+  }
+
+  if (!route.name || route.name === 'root' || route.name === 'not-found') {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * The vue router will automatically merge the meta of all matched items, and the icons here may be affected by other
  * matching items, so they need to be processed separately
  *
@@ -173,9 +191,16 @@ export function filterTabsByIds(tabIds: string[], tabs: App.Global.Tab[]) {
 export function extractTabsByAllRoutes(router: Router, tabs: App.Global.Tab[]) {
   const routes = router.getRoutes();
 
-  const routeNames = routes.map(route => route.name);
+  const routeMap = new Map(routes.map(route => [route.name, route]));
 
-  return tabs.filter(tab => routeNames.includes(tab.routeKey));
+  return tabs.filter(tab => {
+    const route = routeMap.get(tab.routeKey);
+    if (!route) {
+      return false;
+    }
+
+    return canTrackRouteAsTab(route as App.Global.TabRoute);
+  });
 }
 
 /**
