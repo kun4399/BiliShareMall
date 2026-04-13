@@ -227,6 +227,14 @@ func (d *Database) CreateCSCItem(item *CSCItem) (int64, error) {
 }
 
 func (d *Database) SaveMailListToDB(response *domain.MailListResponse) int64 {
+	sum, err := d.SaveMailListToDBStrict(response)
+	if err != nil {
+		log.Error().Err(err).Msg("SaveMailListToDBStrict failed")
+	}
+	return sum
+}
+
+func (d *Database) SaveMailListToDBStrict(response *domain.MailListResponse) (int64, error) {
 	sum := int64(0)
 	for _, item := range response.Data.Data {
 		detailName, detailImg, skuID, itemsID := pickMarketDetail(item)
@@ -255,11 +263,11 @@ func (d *Database) SaveMailListToDB(response *domain.MailListResponse) int64 {
 
 		rows, err := d.CreateCSCItem(&scrapyItem)
 		if err != nil {
-			log.Error().Err(err).Msg("CreateCSCItem failed")
+			return sum, err
 		}
 		sum += rows
 	}
-	return sum
+	return sum, nil
 }
 
 func pickMarketDetail(item domain.MarketItem) (detailName, detailImg string, skuID, itemsID int64) {

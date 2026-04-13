@@ -22,5 +22,6 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   login: () => import("@/views/_builtin/login/index.vue"),
   "home-detail": () => import("@/views/home-detail/[skuId].vue"),
   home: () => import("@/views/home/index.vue"),
+  monitor: () => import("@/views/monitor/index.vue"),
   scrapy: () => import("@/views/scrapy/index.vue"),
 };

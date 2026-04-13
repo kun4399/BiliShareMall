@@ -7,7 +7,7 @@ import {
   DeleteScrapyItem,
   DoneTask,
   GetMarketRuntimeConfig,
-  GetNowRunTaskId,
+  GetRunningTaskIds,
   ReadAllScrapyItems,
   StartTask
 } from '~/wailsjs/go/app/App';
@@ -17,14 +17,36 @@ interface TimeHash {
   [key: number]: Date | undefined;
 }
 
+interface RetryState {
+  seconds: number;
+  reason: string;
+  updatedAt: Date;
+}
+
+interface RetryHash {
+  [key: number]: RetryState | undefined;
+}
+
+interface ScrapyRetryEvent {
+  taskId: number;
+  seconds: number;
+  reason: string;
+}
+
+interface ScrapyRoundEvent {
+  taskId: number;
+  completedAt: number;
+}
+
 export function useScrapyTasks() {
   const message = useMessage();
   const loadingBar = useLoadingBar();
 
   const finishTimeHash = ref<TimeHash>({});
   const failedTimeHash = ref<TimeHash>({});
-  const nowIdx = ref(-1);
+  const retryStateHash = ref<RetryHash>({});
   const scrapyList = ref<dao.ScrapyItem[]>([]);
+  const runningTaskIds = ref<number[]>([]);
   const runtimeConfig = ref<scrapy.MarketRuntimeConfig | null>(null);
   const selectedProduct = ref('');
   const selectedOrder = ref('TIME_DESC');
@@ -35,6 +57,7 @@ export function useScrapyTasks() {
   const orderOptions = computed(() => runtimeConfig.value?.sorts ?? []);
   const priceFilterOptions = computed(() => runtimeConfig.value?.priceFilters ?? []);
   const discountFilterOptions = computed(() => runtimeConfig.value?.discountFilters ?? []);
+  const runningCount = computed(() => runningTaskIds.value.length);
 
   const sourceNotice = computed(() => {
     if (!runtimeConfig.value || runtimeConfig.value.source !== 'fallback') return '';
@@ -48,6 +71,19 @@ export function useScrapyTasks() {
 
   function displayLabel(label: string) {
     return label || '不限';
+  }
+
+  function isTaskRunning(taskID: number) {
+    return runningTaskIds.value.includes(taskID);
+  }
+
+  function addRunningTask(taskID: number) {
+    if (isTaskRunning(taskID)) return;
+    runningTaskIds.value = [...runningTaskIds.value, taskID].sort((a, b) => a - b);
+  }
+
+  function removeRunningTask(taskID: number) {
+    runningTaskIds.value = runningTaskIds.value.filter(id => id !== taskID);
   }
 
   async function loadRuntimeConfig() {
@@ -98,12 +134,13 @@ export function useScrapyTasks() {
   }
 
   function handleClose(idx: number) {
-    if (nowIdx.value !== -1) {
-      message.warning('请先关闭当前爬虫任务');
+    const taskID = scrapyList.value[idx].id;
+    if (isTaskRunning(taskID)) {
+      message.warning('请先停止该任务');
       return;
     }
     loadingBar.start();
-    DeleteScrapyItem(scrapyList.value[idx].id)
+    DeleteScrapyItem(taskID)
       .then(() => {
         getAllItems().then(value => {
           scrapyList.value = value.slice();
@@ -111,21 +148,22 @@ export function useScrapyTasks() {
           message.success('删除成功');
         });
       })
-      .catch(() => {
+      .catch(err => {
         loadingBar.error();
-        message.error('删除失败');
+        message.error(err?.message || '删除失败');
       });
   }
 
   function handleRun(idx: number) {
-    if (nowIdx.value === idx) {
+    const taskID = scrapyList.value[idx].id;
+    if (isTaskRunning(taskID)) {
       message.warning('该任务已在运行');
       return;
     }
     loadingBar.start();
-    StartTask(scrapyList.value[idx].id, getToken())
+    StartTask(taskID, getToken())
       .then(() => {
-        nowIdx.value = idx;
+        addRunningTask(taskID);
         loadingBar.finish();
         message.success('启动成功');
       })
@@ -139,14 +177,22 @@ export function useScrapyTasks() {
     loadingBar.start();
     DoneTask(id)
       .then(() => {
-        nowIdx.value = -1;
+        removeRunningTask(id);
         loadingBar.finish();
         message.success('已停止');
       })
-      .catch(() => {
+      .catch(err => {
         loadingBar.error();
-        message.error('停止失败');
+        message.error(err?.message || '停止失败');
       });
+  }
+
+  function parseTaskID(payload: unknown): number {
+    if (typeof payload === 'number') return payload;
+    if (payload && typeof payload === 'object' && 'taskId' in payload) {
+      return Number((payload as { taskId?: number }).taskId || 0);
+    }
+    return 0;
   }
 
   const unlisteners: Array<() => void> = [];
@@ -158,37 +204,56 @@ export function useScrapyTasks() {
         const idx = scrapyList.value.findIndex(it => it.id === item.id);
         if (idx >= 0) {
           scrapyList.value[idx] = item;
-          nowIdx.value = idx;
         }
       })
     );
 
     unlisteners.push(
       EventsOn('scrapy_failed', payload => {
-        message.error('任务失败，请检查登录状态或稍后重试');
-        const id = payload as number;
+        message.error('任务失败，请稍后重试');
+        const id = parseTaskID(payload);
+        if (!id) return;
         failedTimeHash.value[id] = new Date();
-        nowIdx.value = -1;
+        removeRunningTask(id);
+      })
+    );
+
+    unlisteners.push(
+      EventsOn('scrapy_round_finished', payload => {
+        const event = payload as ScrapyRoundEvent;
+        const id = parseTaskID(event);
+        if (!id) return;
+        finishTimeHash.value[id] = new Date(event.completedAt || Date.now());
       })
     );
 
     unlisteners.push(
       EventsOn('scrapy_finished', payload => {
-        const id = payload as number;
+        const id = parseTaskID(payload);
+        if (!id) return;
         finishTimeHash.value[id] = new Date();
-        nowIdx.value = -1;
       })
     );
 
     unlisteners.push(
-      EventsOn('scrapy_wait', payload => {
-        const second = payload as number;
-        message.warning(`出现风控，等待 ${second} 秒后继续`);
+      EventsOn('scrapy_retry_wait', payload => {
+        const event = payload as ScrapyRetryEvent;
+        const id = parseTaskID(event);
+        if (!id) return;
+        retryStateHash.value[id] = {
+          seconds: Number(event.seconds || 10),
+          reason: event.reason || '请求失败',
+          updatedAt: new Date()
+        };
       })
     );
 
     unlisteners.push(
-      EventsOn('scrapyItem_get_failed', _ => {
+      EventsOn('scrapyItem_get_failed', payload => {
+        const id = parseTaskID(payload);
+        if (id) {
+          removeRunningTask(id);
+        }
         message.warning('当前爬取配置读取失败');
       })
     );
@@ -199,12 +264,7 @@ export function useScrapyTasks() {
     loadingBar.start();
     await loadRuntimeConfig();
     scrapyList.value = await getAllItems();
-    const nowRunTaskId = await GetNowRunTaskId();
-    scrapyList.value.forEach((item, index) => {
-      if (item.id === nowRunTaskId) {
-        nowIdx.value = index;
-      }
-    });
+    runningTaskIds.value = await GetRunningTaskIds();
     loadingBar.finish();
   });
 
@@ -220,8 +280,10 @@ export function useScrapyTasks() {
   return {
     finishTimeHash,
     failedTimeHash,
-    nowIdx,
+    retryStateHash,
     scrapyList,
+    runningTaskIds,
+    runningCount,
     selectedProduct,
     selectedOrder,
     selectedPriceFilter,
@@ -231,6 +293,7 @@ export function useScrapyTasks() {
     priceFilterOptions,
     discountFilterOptions,
     sourceNotice,
+    isTaskRunning,
     getOptionLabel,
     displayLabel,
     addScrapy,

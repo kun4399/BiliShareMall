@@ -90,3 +90,36 @@ CREATE TRIGGER IF NOT EXISTS c2c_items_delete
 BEGIN
     DELETE FROM c2c_fts WHERE rowid = OLD.c2c_items_id;
 END;
+
+CREATE TABLE IF NOT EXISTS monitor_config
+(
+    id      INTEGER PRIMARY KEY CHECK (id = 1),
+    webhook TEXT NOT NULL DEFAULT ''
+);
+
+INSERT OR IGNORE INTO monitor_config (id, webhook)
+VALUES (1, '');
+
+CREATE TABLE IF NOT EXISTS monitor_rules
+(
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    sku_id    INTEGER NOT NULL,
+    min_price INTEGER NOT NULL,
+    max_price INTEGER NOT NULL,
+    enabled   INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS monitor_alert_history
+(
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id      INTEGER NOT NULL,
+    c2c_items_id INTEGER NOT NULL,
+    task_id      INTEGER,
+    sent         INTEGER NOT NULL DEFAULT 0,
+    sent_at      DATETIME,
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(rule_id, c2c_items_id),
+    FOREIGN KEY(rule_id) REFERENCES monitor_rules(id) ON DELETE CASCADE
+);

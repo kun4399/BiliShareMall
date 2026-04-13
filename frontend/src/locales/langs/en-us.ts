@@ -161,7 +161,8 @@ const local: App.I18n.Schema = {
     'iframe-page': 'Iframe',
     home: 'Home',
     'home-detail': 'Detail',
-    scrapy: 'scrapy'
+    scrapy: 'Scrapy',
+    monitor: 'Monitor Alerts'
   },
   page: {
     login: {

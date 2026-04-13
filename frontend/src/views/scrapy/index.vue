@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { useScrapyTasks } from '@/features/scrapy/useScrapyTasks';
 import { Play, StopSharp } from '@vicons/ionicons5';
+
 const {
   finishTimeHash,
   failedTimeHash,
-  nowIdx,
+  retryStateHash,
   scrapyList,
+  runningTaskIds,
+  runningCount,
   selectedProduct,
   selectedOrder,
   selectedPriceFilter,
@@ -15,6 +18,7 @@ const {
   priceFilterOptions,
   discountFilterOptions,
   sourceNotice,
+  isTaskRunning,
   getOptionLabel,
   displayLabel,
   addScrapy,
@@ -89,23 +93,13 @@ const {
       </NSpace>
     </NCard>
 
-    <NCard class="running-card" title="当前运行">
-      <NEmpty v-if="nowIdx === -1" description="暂无" />
-      <div v-else>
-        <NSpace justify="space-around" size="large">
-          <NStatistic label="类型" :value="scrapyList[nowIdx].productName" />
-          <NStatistic label="爬取顺序" :value="getOptionLabel(orderOptions, scrapyList[nowIdx].order)" />
-          <NStatistic label="折扣" :value="displayLabel(scrapyList[nowIdx].discountFilterLabel)" />
-          <NStatistic label="价格" :value="displayLabel(scrapyList[nowIdx].priceFilterLabel)" />
-          <NStatistic label="爬取次数" :value="scrapyList[nowIdx].nums" />
-          <NStatistic label="增加数目" :value="scrapyList[nowIdx].increaseNumber" />
-          <NButton class="custom-button" strong ghost circle round size="large" @click="() => handldStop(scrapyList[nowIdx].id)">
-            <template #icon>
-              <NIcon><StopSharp /></NIcon>
-            </template>
-          </NButton>
-        </NSpace>
-      </div>
+    <NCard class="running-card" title="运行中的任务">
+      <NSpace align="center">
+        <NTag type="success" size="large">运行中 {{ runningCount }} 个</NTag>
+        <NTag v-for="id in runningTaskIds" :key="id" type="info" round>
+          任务 #{{ id }}
+        </NTag>
+      </NSpace>
     </NCard>
 
     <NCard
@@ -116,8 +110,14 @@ const {
       @close="() => handleClose(idx)"
     >
       <NSpace vertical size="large">
-        <NAlert v-if="finishTimeHash[scrapy.id]" title="执行完成" type="success">
-          完成时间：{{ finishTimeHash[scrapy.id] }}
+        <NAlert v-if="isTaskRunning(scrapy.id)" title="任务状态" type="success">
+          正在运行中
+        </NAlert>
+        <NAlert v-if="retryStateHash[scrapy.id]" title="重试中" type="warning">
+          {{ retryStateHash[scrapy.id]?.seconds }} 秒后重试，原因：{{ retryStateHash[scrapy.id]?.reason }}
+        </NAlert>
+        <NAlert v-if="finishTimeHash[scrapy.id]" title="本轮完成" type="success">
+          时间：{{ finishTimeHash[scrapy.id] }}
         </NAlert>
         <NAlert v-if="failedTimeHash[scrapy.id]" title="执行失败" type="error">
           错误时间：{{ failedTimeHash[scrapy.id] }}
@@ -127,9 +127,32 @@ const {
           <NStatistic label="价格" :value="displayLabel(scrapy.priceFilterLabel)" />
           <NStatistic label="爬取次数" :value="scrapy.nums" />
           <NStatistic label="增加数目" :value="scrapy.increaseNumber" />
-          <NButton class="custom-button" strong ghost circle round size="large" @click="() => handleRun(idx)">
+          <NButton
+            v-if="!isTaskRunning(scrapy.id)"
+            class="custom-button"
+            strong
+            ghost
+            circle
+            round
+            size="large"
+            @click="() => handleRun(idx)"
+          >
             <template #icon>
               <NIcon><Play /></NIcon>
+            </template>
+          </NButton>
+          <NButton
+            v-else
+            class="custom-button"
+            strong
+            ghost
+            circle
+            round
+            size="large"
+            @click="() => handldStop(scrapy.id)"
+          >
+            <template #icon>
+              <NIcon><StopSharp /></NIcon>
             </template>
           </NButton>
         </NSpace>

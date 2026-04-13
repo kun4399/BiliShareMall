@@ -22,8 +22,16 @@ export function GetMarketRuntimeConfig(arg1) {
   return window['go']['app']['App']['GetMarketRuntimeConfig'](arg1);
 }
 
+export function GetMonitorConfig() {
+  return window['go']['app']['App']['GetMonitorConfig']();
+}
+
 export function GetNowRunTaskId() {
   return window['go']['app']['App']['GetNowRunTaskId']();
+}
+
+export function GetRunningTaskIds() {
+  return window['go']['app']['App']['GetRunningTaskIds']();
 }
 
 export function ListC2CItem(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
@@ -36,6 +44,10 @@ export function ListC2CItemDetailBySku(arg1, arg2, arg3, arg4, arg5, arg6) {
 
 export function ReadAllScrapyItems() {
   return window['go']['app']['App']['ReadAllScrapyItems']();
+}
+
+export function SaveMonitorConfig(arg1) {
+  return window['go']['app']['App']['SaveMonitorConfig'](arg1);
 }
 
 export function StartTask(arg1, arg2) {

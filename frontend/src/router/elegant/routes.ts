@@ -90,6 +90,16 @@ export const generatedRoutes: GeneratedRoute[] = [
     }
   },
   {
+    name: 'monitor',
+    path: '/monitor',
+    component: 'layout.base$view.monitor',
+    meta: {
+      title: 'monitor',
+      i18nKey: 'route.monitor',
+      keepAlive: true
+    }
+  },
+  {
     name: 'scrapy',
     path: '/scrapy',
     component: 'layout.base$view.scrapy',

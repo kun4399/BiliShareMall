@@ -170,6 +170,7 @@ const routeMap: RouteMap = {
   "home-detail": "/home/:skuId",
   "iframe-page": "/iframe-page/:url",
   "login": "/login/:module(bili-qrlogin)?",
+  "monitor": "/monitor",
   "scrapy": "/scrapy"
 };
 

@@ -24,6 +24,7 @@ declare module "@elegant-router/types" {
     "home-detail": "/home/:skuId";
     "iframe-page": "/iframe-page/:url";
     "login": "/login/:module(bili-qrlogin)?";
+    "monitor": "/monitor";
     "scrapy": "/scrapy";
   };
 
@@ -63,6 +64,7 @@ declare module "@elegant-router/types" {
     | "home-detail"
     | "iframe-page"
     | "login"
+    | "monitor"
     | "scrapy"
   >;
 
@@ -87,6 +89,7 @@ declare module "@elegant-router/types" {
     | "login"
     | "home-detail"
     | "home"
+    | "monitor"
     | "scrapy"
   >;
 

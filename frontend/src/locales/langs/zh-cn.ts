@@ -161,7 +161,8 @@ const local: App.I18n.Schema = {
     'iframe-page': '外链页面',
     home: '数据库',
     'home-detail': '商品详情',
-    scrapy: '爬取数据'
+    scrapy: '爬取数据',
+    monitor: '监控告警'
   },
   page: {
     login: {
