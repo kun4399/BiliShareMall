@@ -43,6 +43,7 @@ export namespace catalog {
 	    sellerName: string;
 	    sellerUID: string;
 	    publishTime: number;
+	    firstSeenTime: number;
 	    status: string;
 	    link: string;
 	
@@ -59,6 +60,7 @@ export namespace catalog {
 	        this.sellerName = source["sellerName"];
 	        this.sellerUID = source["sellerUID"];
 	        this.publishTime = source["publishTime"];
+	        this.firstSeenTime = source["firstSeenTime"];
 	        this.status = source["status"];
 	        this.link = source["link"];
 	    }

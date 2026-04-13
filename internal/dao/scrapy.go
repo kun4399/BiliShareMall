@@ -160,6 +160,7 @@ type CSCItem struct {
 	SellerName       string `json:"sellerName"`
 	PaymentTime      int64  `json:"paymentTime"`
 	PublishTime      int64  `json:"publishTime"`
+	FirstSeenTime    int64  `json:"firstSeenTime"`
 	IsMyPublish      bool   `json:"isMyPublish"`
 	Uface            string `json:"uface"`
 	RawStatus        *int   `json:"rawStatus,omitempty"`

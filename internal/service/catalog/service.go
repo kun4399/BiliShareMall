@@ -40,15 +40,16 @@ type C2CItemDetailListVO struct {
 }
 
 type C2CItemDetailVO struct {
-	C2CItemsID  int64   `json:"c2cItemsId"`
-	SkuID       int64   `json:"skuId"`
-	Price       float64 `json:"price"`
-	ShowPrice   string  `json:"showPrice"`
-	SellerName  string  `json:"sellerName"`
-	SellerUID   string  `json:"sellerUID"`
-	PublishTime int64   `json:"publishTime"`
-	Status      string  `json:"status"`
-	Link        string  `json:"link"`
+	C2CItemsID    int64   `json:"c2cItemsId"`
+	SkuID         int64   `json:"skuId"`
+	Price         float64 `json:"price"`
+	ShowPrice     string  `json:"showPrice"`
+	SellerName    string  `json:"sellerName"`
+	SellerUID     string  `json:"sellerUID"`
+	PublishTime   int64   `json:"publishTime"`
+	FirstSeenTime int64   `json:"firstSeenTime"`
+	Status        string  `json:"status"`
+	Link          string  `json:"link"`
 }
 
 type Service struct {
@@ -168,15 +169,16 @@ func (s *Service) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOp
 	result := make([]C2CItemDetailVO, 0, len(items))
 	for _, item := range items {
 		result = append(result, C2CItemDetailVO{
-			C2CItemsID:  item.C2CItemsID,
-			SkuID:       item.SkuID,
-			Price:       float64(item.Price) / 100,
-			ShowPrice:   item.ShowPrice,
-			SellerName:  item.SellerName,
-			SellerUID:   item.SellerUID,
-			PublishTime: item.PublishTime,
-			Status:      item.NormalizedStatus,
-			Link:        buildItemLink(item.C2CItemsID),
+			C2CItemsID:    item.C2CItemsID,
+			SkuID:         item.SkuID,
+			Price:         float64(item.Price) / 100,
+			ShowPrice:     item.ShowPrice,
+			SellerName:    item.SellerName,
+			SellerUID:     item.SellerUID,
+			PublishTime:   item.PublishTime,
+			FirstSeenTime: item.FirstSeenTime,
+			Status:        item.NormalizedStatus,
+			Link:          buildItemLink(item.C2CItemsID),
 		})
 	}
 

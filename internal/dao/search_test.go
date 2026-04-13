@@ -297,6 +297,121 @@ func TestSaveMailListToDBKeepsStatusWhenRawFieldsMissing(t *testing.T) {
 	}
 }
 
+func TestReadC2CItemDetailsBySkuUsesFirstSeenTimeAndSortsByIt(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := mustMarketListResponse(t, `{
+		"code": 0,
+		"message": "success",
+		"data": {
+			"data": [
+				{
+					"c2cItemsId": 401,
+					"type": 1,
+					"c2cItemsName": "时间排序商品",
+					"detailDtoList": [
+						{
+							"blindBoxId": 4,
+							"itemsId": 4001,
+							"skuId": 9401,
+							"name": "时间排序商品",
+							"img": "//img-time-a.png",
+							"marketPrice": 15900,
+							"type": 0,
+							"isHidden": false
+						}
+					],
+					"totalItemsCount": 2,
+					"price": 8800,
+					"showPrice": "88",
+					"showMarketPrice": "159",
+					"uid": "90***1",
+					"paymentTime": 1710030000000,
+					"isMyPublish": false,
+					"uface": "face-time-a",
+					"uname": "卖家时间A"
+				},
+				{
+					"c2cItemsId": 402,
+					"type": 1,
+					"c2cItemsName": "时间排序商品",
+					"detailDtoList": [
+						{
+							"blindBoxId": 4,
+							"itemsId": 4001,
+							"skuId": 9401,
+							"name": "时间排序商品",
+							"img": "//img-time-b.png",
+							"marketPrice": 15900,
+							"type": 0,
+							"isHidden": false
+						}
+					],
+					"totalItemsCount": 2,
+					"price": 9100,
+					"showPrice": "91",
+					"showMarketPrice": "159",
+					"uid": "90***2",
+					"paymentTime": 1710033600000,
+					"isMyPublish": false,
+					"uface": "face-time-b",
+					"uname": "卖家时间B"
+				}
+			]
+		}
+	}`)
+
+	if rows := db.SaveMailListToDB(&response); rows != 2 {
+		t.Fatalf("expected 2 rows affected, got %d", rows)
+	}
+
+	if _, err := db.Db.Exec(`UPDATE c2c_items SET publish_time = 0 WHERE sku_id = ?`, 9401); err != nil {
+		t.Fatalf("failed to clear publish_time: %v", err)
+	}
+
+	if _, err := db.Db.Exec(`
+		UPDATE c2c_items
+		SET created_at = CASE c2c_items_id
+			WHEN 401 THEN '2026-01-01 08:00:00'
+			WHEN 402 THEN '2026-01-02 08:00:00'
+		END
+		WHERE c2c_items_id IN (401, 402)
+	`); err != nil {
+		t.Fatalf("failed to set created_at for test rows: %v", err)
+	}
+
+	desc, total, err := db.ReadC2CItemDetailsBySku(9401, 1, 10, 1, "")
+	if err != nil {
+		t.Fatalf("ReadC2CItemDetailsBySku desc error: %v", err)
+	}
+	if total != 2 || len(desc) != 2 {
+		t.Fatalf("expected 2 detail rows for desc sort, total=%d len=%d", total, len(desc))
+	}
+	if desc[0].C2CItemsID != 402 || desc[1].C2CItemsID != 401 {
+		t.Fatalf("expected desc sort by firstSeenTime to be [402, 401], got [%d, %d]", desc[0].C2CItemsID, desc[1].C2CItemsID)
+	}
+	if desc[0].FirstSeenTime == 0 || desc[1].FirstSeenTime == 0 {
+		t.Fatalf("expected non-zero firstSeenTime from created_at, got [%d, %d]", desc[0].FirstSeenTime, desc[1].FirstSeenTime)
+	}
+	if desc[0].FirstSeenTime <= desc[1].FirstSeenTime {
+		t.Fatalf("expected desc firstSeenTime order, got [%d, %d]", desc[0].FirstSeenTime, desc[1].FirstSeenTime)
+	}
+
+	asc, totalAsc, err := db.ReadC2CItemDetailsBySku(9401, 1, 10, 2, "")
+	if err != nil {
+		t.Fatalf("ReadC2CItemDetailsBySku asc error: %v", err)
+	}
+	if totalAsc != 2 || len(asc) != 2 {
+		t.Fatalf("expected 2 detail rows for asc sort, total=%d len=%d", totalAsc, len(asc))
+	}
+	if asc[0].C2CItemsID != 401 || asc[1].C2CItemsID != 402 {
+		t.Fatalf("expected asc sort by firstSeenTime to be [401, 402], got [%d, %d]", asc[0].C2CItemsID, asc[1].C2CItemsID)
+	}
+	if asc[0].FirstSeenTime >= asc[1].FirstSeenTime {
+		t.Fatalf("expected asc firstSeenTime order, got [%d, %d]", asc[0].FirstSeenTime, asc[1].FirstSeenTime)
+	}
+}
+
 func newTestDatabase(t *testing.T) *Database {
 	t.Helper()
 

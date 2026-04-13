@@ -30,8 +30,8 @@ export function useCatalogDetail() {
   });
 
   const sortways = ref<SortWay[]>([
-    { value: 1, label: '时间降序' },
-    { value: 2, label: '时间升序' },
+    { value: 1, label: '首次抓取时间降序' },
+    { value: 2, label: '首次抓取时间升序' },
     { value: 3, label: '价格升序' },
     { value: 4, label: '价格降序' }
   ]);
@@ -91,14 +91,14 @@ export function useCatalogDetail() {
       }
     },
     {
-      title: '创建时间',
-      key: 'publishTime',
+      title: '首次抓取时间',
+      key: 'firstSeenTime',
       width: 180,
       render(row: catalog.C2CItemDetailVO) {
-        if (!row.publishTime) {
+        if (!row.firstSeenTime) {
           return '-';
         }
-        return dayjs(row.publishTime).format('YYYY-MM-DD HH:mm');
+        return dayjs(row.firstSeenTime).format('YYYY-MM-DD HH:mm');
       }
     },
     {

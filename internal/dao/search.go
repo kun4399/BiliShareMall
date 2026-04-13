@@ -147,7 +147,8 @@ func (d *Database) ReadC2CItemDetailsBySku(skuID int64, page, pageSize int, sort
 			c2c_items_id, type, c2c_items_name, detail_name, detail_img, sku_id, items_id,
 			total_items_count, price, show_price, show_market_price, seller_uid, seller_name,
 			payment_time, publish_time, is_my_publish, uface, raw_status, raw_sale_status,
-			normalized_status, status_checked_at
+			normalized_status, status_checked_at,
+			COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) AS first_seen_time
 		FROM c2c_items` + whereClause + " " + buildDetailSort(sortOption) + " LIMIT ? OFFSET ?"
 	queryArgs := append(append([]any{}, args...), pageSize, offset)
 
@@ -179,10 +180,11 @@ func (d *Database) ReadAllC2CItemDetailsBySku(skuID int64) ([]CSCItem, error) {
 			c2c_items_id, type, c2c_items_name, detail_name, detail_img, sku_id, items_id,
 			total_items_count, price, show_price, show_market_price, seller_uid, seller_name,
 			payment_time, publish_time, is_my_publish, uface, raw_status, raw_sale_status,
-			normalized_status, status_checked_at
+			normalized_status, status_checked_at,
+			COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) AS first_seen_time
 		FROM c2c_items
 		WHERE sku_id = ?
-		ORDER BY COALESCE(publish_time, 0) DESC, c2c_items_id DESC`,
+		ORDER BY COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) DESC, c2c_items_id DESC`,
 		skuID,
 	)
 	if err != nil {
