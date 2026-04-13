@@ -108,7 +108,7 @@ jobs:
           GOOS: ${{ matrix.build.goos }}
           GOARCH: ${{ matrix.build.goarch }}
         run: |
-          "${HOME}/go/bin/wails" build -m -s -trimpath -skipbindings -nsis -tags fts5 -o "${APP_NAME}.exe"
+          "${HOME}/go/bin/wails" build -m -s -trimpath -skipbindings -tags fts5 -o "${APP_NAME}.exe"
 
       - name: Build macOS desktop app
         if: runner.os == 'macOS'
@@ -133,19 +133,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $installer = Get-ChildItem -Path "./build/bin" -Filter "*installer.exe" | Select-Object -First 1
-          if ($installer) {
-            Write-Host "Packaging installer: $($installer.FullName)"
-            Compress-Archive -Path $installer.FullName -DestinationPath "./build/bin/${{ matrix.build.archive_name }}" -Force
-            exit 0
-          }
           $appBinary = Get-ChildItem -Path "./build/bin" -Filter "${{ env.APP_NAME }}.exe" | Select-Object -First 1
           if ($appBinary) {
-            Write-Warning "NSIS installer not found, packaging desktop executable instead: $($appBinary.FullName)"
+            Write-Host "Packaging desktop executable: $($appBinary.FullName)"
             Compress-Archive -Path $appBinary.FullName -DestinationPath "./build/bin/${{ matrix.build.archive_name }}" -Force
             exit 0
           }
-          Write-Error "Neither NSIS installer nor desktop executable was found in ./build/bin"
+          Write-Error "Desktop executable was not found in ./build/bin"
           Get-ChildItem -Path "./build/bin" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
           exit 1
 

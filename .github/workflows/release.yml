@@ -84,7 +84,7 @@ jobs:
         env:
           GOOS: ${{ matrix.build.GOOS }}
           GOARCH: ${{ matrix.build.GOARCH }}
-        run: ~/go/bin/wails build -m -s -trimpath -skipbindings -devtools -nsis -tags fts5 -o ${{ env.APP_NAME }}.exe
+        run: ~/go/bin/wails build -m -s -trimpath -skipbindings -devtools -tags fts5 -o ${{ env.APP_NAME }}.exe
 
       # Build macos
       - name: Build for ${{ matrix.build.GOOS }}-${{ matrix.build.GOARCH }}
@@ -118,19 +118,13 @@ jobs:
       - name: Create a compressed file for Windows
         if: runner.os == 'Windows'
         run: |
-          $installer = Get-ChildItem -Path "./build/bin" -Filter "*installer.exe" | Select-Object -First 1
-          if ($installer) {
-            Write-Host "Packaging installer: $($installer.FullName)"
-            Compress-Archive -Path $installer.FullName -DestinationPath "./build/bin/${{ env.ZIP_FILE }}" -Force
-            exit 0
-          }
           $appBinary = Get-ChildItem -Path "./build/bin" -Filter "${{ env.APP_NAME }}.exe" | Select-Object -First 1
           if ($appBinary) {
-            Write-Warning "NSIS installer not found, packaging desktop executable instead: $($appBinary.FullName)"
+            Write-Host "Packaging desktop executable: $($appBinary.FullName)"
             Compress-Archive -Path $appBinary.FullName -DestinationPath "./build/bin/${{ env.ZIP_FILE }}" -Force
             exit 0
           }
-          Write-Error "Neither NSIS installer nor desktop executable was found in ./build/bin"
+          Write-Error "Desktop executable was not found in ./build/bin"
           Get-ChildItem -Path "./build/bin" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
           exit 1
 

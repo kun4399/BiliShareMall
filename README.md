@@ -32,6 +32,7 @@ Windows 推荐使用 `installer.exe` 结尾的安装包。
   - `BiliShareMall-windows-amd64.zip`
   - `BiliShareMall-darwin-amd64.zip`
   - `BiliShareMall-darwin-arm64.zip`
+- Windows 自动发布资产内默认包含桌面可执行文件 `BiliShareMall.exe`
 - 同一次 workflow 会推送网页版 Docker 镜像到 Docker Hub：`kun4399/bilisharemall`
 - Docker 镜像标签默认包含：
   - `latest`
