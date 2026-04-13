@@ -1,4 +1,4 @@
-import { ListC2CItem, ListC2CItemDetailBySku } from '~/wailsjs/go/app/App';
+import { ListC2CItem, ListC2CItemDetailBySku } from '@/gateway';
 
 export interface CatalogListQuery {
   page: number;

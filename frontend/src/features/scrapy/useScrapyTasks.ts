@@ -1,16 +1,17 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useLoadingBar, useMessage } from 'naive-ui';
-import { dao, scrapy } from '~/wailsjs/go/models';
-import { EventsOn } from '~/wailsjs/runtime/runtime';
+import type { scrapy } from '~/wailsjs/go/models';
+import { dao } from '~/wailsjs/go/models';
 import {
   CreateScrapyItem,
   DeleteScrapyItem,
   DoneTask,
   GetMarketRuntimeConfig,
   GetRunningTaskIds,
+  OnAppEvent,
   ReadAllScrapyItems,
   StartTask
-} from '~/wailsjs/go/app/App';
+} from '@/gateway';
 import { getToken } from '@/store/modules/auth/shared';
 
 interface TimeHash {
@@ -203,7 +204,7 @@ export function useScrapyTasks() {
 
   function setupEvents() {
     unlisteners.push(
-      EventsOn('updateScrapyItem', payload => {
+      OnAppEvent('updateScrapyItem', payload => {
         const item = dao.ScrapyItem.createFrom(payload);
         const idx = scrapyList.value.findIndex(it => it.id === item.id);
         if (idx >= 0) {
@@ -213,7 +214,7 @@ export function useScrapyTasks() {
     );
 
     unlisteners.push(
-      EventsOn('scrapy_failed', payload => {
+      OnAppEvent('scrapy_failed', payload => {
         message.error('任务失败，请稍后重试');
         const id = parseTaskID(payload);
         if (!id) return;
@@ -223,7 +224,7 @@ export function useScrapyTasks() {
     );
 
     unlisteners.push(
-      EventsOn('scrapy_round_finished', payload => {
+      OnAppEvent('scrapy_round_finished', payload => {
         const event = payload as ScrapyRoundEvent;
         const id = parseTaskID(event);
         if (!id) return;
@@ -232,7 +233,7 @@ export function useScrapyTasks() {
     );
 
     unlisteners.push(
-      EventsOn('scrapy_finished', payload => {
+      OnAppEvent('scrapy_finished', payload => {
         const id = parseTaskID(payload);
         if (!id) return;
         finishTimeHash.value[id] = new Date();
@@ -240,7 +241,7 @@ export function useScrapyTasks() {
     );
 
     unlisteners.push(
-      EventsOn('scrapy_retry_wait', payload => {
+      OnAppEvent('scrapy_retry_wait', payload => {
         const event = payload as ScrapyRetryEvent;
         const id = parseTaskID(event);
         if (!id) return;
@@ -253,7 +254,7 @@ export function useScrapyTasks() {
     );
 
     unlisteners.push(
-      EventsOn('scrapyItem_get_failed', payload => {
+      OnAppEvent('scrapyItem_get_failed', payload => {
         const id = parseTaskID(payload);
         if (id) {
           removeRunningTask(id);

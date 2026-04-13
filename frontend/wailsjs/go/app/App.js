@@ -38,6 +38,10 @@ export function GetRunningTaskIds() {
   return window['go']['app']['App']['GetRunningTaskIds']();
 }
 
+export function Initialize() {
+  return window['go']['app']['App']['Initialize']();
+}
+
 export function ListC2CItem(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
   return window['go']['app']['App']['ListC2CItem'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
@@ -60,6 +64,10 @@ export function SaveMonitorConfig(arg1) {
 
 export function StartTask(arg1, arg2) {
   return window['go']['app']['App']['StartTask'](arg1, arg2);
+}
+
+export function SubscribeEvents(arg1) {
+  return window['go']['app']['App']['SubscribeEvents'](arg1);
 }
 
 export function VerifyLogin(arg1) {

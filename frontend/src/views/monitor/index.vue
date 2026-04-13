@@ -3,8 +3,7 @@ import { useClipboard } from '@vueuse/core';
 import { onMounted, onUnmounted, ref } from 'vue';
 import { useLoadingBar, useMessage } from 'naive-ui';
 import { scrapy } from '~/wailsjs/go/models';
-import { EventsOn } from '~/wailsjs/runtime/runtime';
-import { GetC2CItemNameBySku, GetMonitorConfig, ListMonitorRuleHits, SaveMonitorConfig } from '~/wailsjs/go/app/App';
+import { GetC2CItemNameBySku, GetMonitorConfig, ListMonitorRuleHits, OnAppEvent, SaveMonitorConfig } from '@/gateway';
 
 interface MonitorRuleForm {
   key: number;
@@ -354,7 +353,7 @@ async function saveConfig() {
 
 onMounted(() => {
   unlisteners.push(
-    EventsOn('monitor_alert_result', payload => {
+    OnAppEvent('monitor_alert_result', payload => {
       upsertRuleHit(normalizeHit(payload));
     })
   );
@@ -403,19 +402,12 @@ onUnmounted(() => {
 
       <NEmpty v-if="rules.length === 0" description="暂无规则，点击“新增规则”开始配置" />
       <NSpace v-else vertical size="small">
-        <NCard
-          v-for="(rule, idx) in rules"
-          :key="rule.key"
-          size="small"
-          :title="`规则 #${idx + 1}`"
-        >
+        <NCard v-for="(rule, idx) in rules" :key="rule.key" size="small" :title="`规则 #${idx + 1}`">
           <template #header-extra>
             <NSpace align="center">
               <NText depth="3">启用</NText>
               <NSwitch v-model:value="rule.enabled" />
-              <NButton quaternary type="error" @click="removeRule(idx)">
-                删除
-              </NButton>
+              <NButton quaternary type="error" @click="removeRule(idx)">删除</NButton>
             </NSpace>
           </template>
           <NGrid :cols="4" :x-gap="8" :y-gap="8">

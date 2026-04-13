@@ -16,6 +16,8 @@
     "lint": "eslint . --fix",
     "preview": "vite preview",
     "release": "sa release",
+    "test:runtime": "tsx --test src/gateway/runtime.test.ts",
+    "typecheck": "vue-tsc --noEmit",
     "update-pkg": "sa update-pkg"
   },
   "dependencies": {

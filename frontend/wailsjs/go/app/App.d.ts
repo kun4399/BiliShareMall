@@ -23,6 +23,8 @@ export function GetNowRunTaskId():Promise<number>;
 
 export function GetRunningTaskIds():Promise<Array<number>>;
 
+export function Initialize():Promise<void>;
+
 export function ListC2CItem(arg1:number,arg2:number,arg3:string,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number):Promise<catalog.C2CItemGroupListVO>;
 
 export function ListC2CItemDetailBySku(arg1:number,arg2:number,arg3:number,arg4:number,arg5:string,arg6:string):Promise<catalog.C2CItemDetailListVO>;
@@ -34,5 +36,7 @@ export function ReadAllScrapyItems():Promise<Array<dao.ScrapyItem>>;
 export function SaveMonitorConfig(arg1:scrapy.MonitorConfig):Promise<void>;
 
 export function StartTask(arg1:number,arg2:string):Promise<void>;
+
+export function SubscribeEvents(arg1:number):Promise<any>;
 
 export function VerifyLogin(arg1:string):Promise<auth.VerifyLoginResponse>;

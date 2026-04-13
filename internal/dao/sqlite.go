@@ -3,47 +3,15 @@ package dao
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"github.com/mattn/go-sqlite3"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/mikumifa/BiliShareMall/internal/util"
-	"runtime"
-	"sync"
 )
 
 type Database struct {
 	Db *sql.DB
 }
 
-var (
-	registerSQLiteDriverOnce sync.Once
-	registerSQLiteDriverErr  error
-)
-
 func NewDatabase(dbPath string) (*Database, error) {
-
-	var extension string
-	switch runtime.GOOS {
-	case "darwin": // macOS
-		extension = util.GetPath("dict/libsimple-osx-x64/libsimple")
-	case "windows": //windows
-		extension = "dict/libsimple-windows-x64/simple"
-	default:
-		return nil, fmt.Errorf("unsupported platform: %s", runtime.GOOS)
-	}
-	registerSQLiteDriverOnce.Do(func() {
-		sql.Register("sqlite3_simple",
-			&sqlite3.SQLiteDriver{
-				Extensions: []string{
-					extension,
-				},
-			})
-	})
-	if registerSQLiteDriverErr != nil {
-		return nil, registerSQLiteDriverErr
-	}
-
-	db, err := sql.Open("sqlite3_simple", dbPath)
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, err
 	}

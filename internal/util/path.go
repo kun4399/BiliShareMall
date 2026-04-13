@@ -23,10 +23,23 @@ func GetPath(path string) string {
 		return filepath.Join(domain.Env.DataPath, strings.TrimPrefix(path, dataPrefix))
 	}
 	if path == "dict" {
-		return filepath.Join(domain.Env.DataPath, "dict")
+		dataDict := filepath.Join(domain.Env.DataPath, "dict")
+		if pathExists(dataDict) {
+			return dataDict
+		}
+		return filepath.Join(domain.Env.BasePath, "dict")
 	}
 	if strings.HasPrefix(path, dictPrefix) {
-		return filepath.Join(domain.Env.DataPath, "dict", strings.TrimPrefix(path, dictPrefix))
+		dataFile := filepath.Join(domain.Env.DataPath, "dict", strings.TrimPrefix(path, dictPrefix))
+		if pathExists(dataFile) {
+			return dataFile
+		}
+		return filepath.Join(domain.Env.BasePath, path)
 	}
 	return filepath.Clean(filepath.Join(domain.Env.BasePath, path))
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

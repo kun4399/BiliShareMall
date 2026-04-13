@@ -61,7 +61,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS c2c_fts USING fts5
     c2c_items_name,
     content=c2c_items,
     content_rowid=c2c_items_id,
-    tokenize = 'simple'
+    tokenize = 'unicode61'
 );
 
 -- Trigger for insert

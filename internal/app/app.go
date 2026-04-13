@@ -3,7 +3,12 @@ package app
 import (
 	"context"
 	"database/sql"
+	"os"
+	"sync"
+	"time"
+
 	"github.com/mikumifa/BiliShareMall/internal/dao"
+	"github.com/mikumifa/BiliShareMall/internal/events"
 	authsvc "github.com/mikumifa/BiliShareMall/internal/service/auth"
 	catalogsvc "github.com/mikumifa/BiliShareMall/internal/service/catalog"
 	scrapysvc "github.com/mikumifa/BiliShareMall/internal/service/scrapy"
@@ -11,21 +16,22 @@ import (
 	cache "github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog/log"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
-	"os"
-	"time"
 )
 
-const DatabaseVersion = 4
+const DatabaseVersion = 5
 
 // App struct
 type App struct {
-	ctx context.Context
-	d   *dao.Database
-	c   *cache.Cache
+	ctx    context.Context
+	d      *dao.Database
+	c      *cache.Cache
+	bus    *events.Bus
+	initMu sync.Mutex
 
-	authService    *authsvc.Service
-	catalogService *catalogsvc.Service
-	scrapyService  *scrapysvc.Service
+	authService       *authsvc.Service
+	catalogService    *catalogsvc.Service
+	scrapyService     *scrapysvc.Service
+	wailsEventsCancel func()
 }
 
 // NewApp creates a new App application struct
@@ -37,35 +43,47 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	var err error
-	a.d, err = a.checkAndCreateDatabase(DatabaseVersion)
-	if err != nil {
-		log.Panic().Err(err).Msg("data/bsm.db NewApp Error")
+	if err := a.Initialize(); err != nil {
+		log.Panic().Err(err).Msg("initialize app error")
 	}
+
+	a.attachWailsEvents()
+}
+
+func (a *App) Initialize() error {
+	a.initMu.Lock()
+	defer a.initMu.Unlock()
+
+	if a.d != nil && a.bus != nil && a.authService != nil && a.catalogService != nil && a.scrapyService != nil {
+		return nil
+	}
+
+	database, err := a.checkAndCreateDatabase(DatabaseVersion)
+	if err != nil {
+		return err
+	}
+
 	content, err := os.ReadFile(util.GetPath("dict/init.sql"))
 	if err != nil {
-		log.Panic().Err(err).Msg("dict/init.sql NewApp Error")
+		return err
 	}
-	err = a.d.Init(string(content))
-	if err != nil {
-		log.Panic().Err(err).Msg("database init NewApp Error")
+	if err = database.Init(string(content)); err != nil {
+		return err
 	}
-	err = a.d.EnsureMonitorRuleRemarkColumn()
-	if err != nil {
-		log.Panic().Err(err).Msg("ensure monitor_rules.remark column error")
+	if err = database.EnsureMonitorRuleRemarkColumn(); err != nil {
+		return err
 	}
-	//更新version
-	err = a.d.UpdateVersion(DatabaseVersion)
-	if err != nil {
-		log.Panic().Err(err).Msg("UpdateVersion  Error")
+	if err = database.UpdateVersion(DatabaseVersion); err != nil {
+		return err
 	}
-	// 设置超时时间和清理时间
+
+	a.d = database
+	a.bus = events.NewBus()
 	a.c = cache.New(5*time.Minute, 10*time.Minute)
-	a.catalogService = catalogsvc.NewService(a.d, a.c)
 	a.authService = authsvc.NewService()
-	a.scrapyService = scrapysvc.NewService(a.d, func(eventName string, payload any) {
-		runtime.EventsEmit(a.ctx, eventName, payload)
-	})
+	a.catalogService = catalogsvc.NewService(a.d, a.c)
+	a.scrapyService = scrapysvc.NewService(a.d, a.bus.Emit)
+	return nil
 }
 
 // checkAndCreateDatabase 测试当前数据库的版本号，如果版本号低就重新建库
@@ -87,13 +105,49 @@ func (a *App) checkAndCreateDatabase(nowVersion int) (ret *dao.Database, err err
 			return nil, err
 		}
 		//重新打开
-		db, err := sql.Open("sqlite3_simple", util.GetPath("data/bsm.db"))
+		db, err := sql.Open("sqlite3", util.GetPath("data/bsm.db"))
 		if err != nil {
 			return nil, err
 		}
 		ret = &dao.Database{Db: db}
 	}
 	return ret, nil
+}
+
+func (a *App) SubscribeEvents(buffer int) (<-chan events.Event, func(), error) {
+	if err := a.Initialize(); err != nil {
+		return nil, nil, err
+	}
+	ch, cancel := a.bus.Subscribe(buffer)
+	return ch, cancel, nil
+}
+
+func (a *App) attachWailsEvents() {
+	if a.ctx == nil || a.bus == nil {
+		return
+	}
+
+	if a.wailsEventsCancel != nil {
+		a.wailsEventsCancel()
+		a.wailsEventsCancel = nil
+	}
+
+	ch, cancel := a.bus.Subscribe(64)
+	a.wailsEventsCancel = cancel
+
+	go func(ctx context.Context, eventsCh <-chan events.Event) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event, ok := <-eventsCh:
+				if !ok {
+					return
+				}
+				runtime.EventsEmit(ctx, event.Name, event.Payload)
+			}
+		}
+	}(a.ctx, ch)
 }
 
 func (a *App) getAuthService() *authsvc.Service {
@@ -105,6 +159,15 @@ func (a *App) getAuthService() *authsvc.Service {
 
 func (a *App) getCatalogService() *catalogsvc.Service {
 	if a.catalogService == nil {
+		if a.d == nil {
+			if err := a.Initialize(); err != nil {
+				log.Error().Err(err).Msg("initialize catalog service error")
+				return catalogsvc.NewService(nil, cache.New(5*time.Minute, 10*time.Minute))
+			}
+		}
+		if a.c == nil {
+			a.c = cache.New(5*time.Minute, 10*time.Minute)
+		}
 		a.catalogService = catalogsvc.NewService(a.d, a.c)
 	}
 	return a.catalogService
@@ -112,11 +175,15 @@ func (a *App) getCatalogService() *catalogsvc.Service {
 
 func (a *App) getScrapyService() *scrapysvc.Service {
 	if a.scrapyService == nil {
-		a.scrapyService = scrapysvc.NewService(a.d, func(eventName string, payload any) {
-			if a.ctx != nil {
-				runtime.EventsEmit(a.ctx, eventName, payload)
+		if a.d == nil {
+			if err := a.Initialize(); err != nil {
+				log.Error().Err(err).Msg("initialize scrapy service error")
 			}
-		})
+		}
+		if a.bus == nil {
+			a.bus = events.NewBus()
+		}
+		a.scrapyService = scrapysvc.NewService(a.d, a.bus.Emit)
 	}
 	return a.scrapyService
 }

@@ -1,5 +1,5 @@
 import { onMounted, onUnmounted, ref } from 'vue';
-import { GetLoginKeyAndUrl, VerifyLogin } from '~/wailsjs/go/app/App';
+import { GetLoginKeyAndUrl, VerifyLogin } from '@/gateway';
 import { useAuthStore } from '@/store/modules/auth';
 
 export function useBiliQrLogin() {
