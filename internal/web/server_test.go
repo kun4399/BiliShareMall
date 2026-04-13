@@ -2,9 +2,13 @@ package web
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,4 +213,68 @@ func TestCatalogSkuNameEndpoint(t *testing.T) {
 	if !strings.Contains(recorder.Body.String(), expected) {
 		t.Fatalf("expected response body to contain %s, got %s", expected, recorder.Body.String())
 	}
+}
+
+func TestImageProxyRejectsMissingURL(t *testing.T) {
+	server := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/assets/image", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
+	}
+}
+
+func TestImageProxyRejectsDisallowedHost(t *testing.T) {
+	server := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/assets/image?url=https://example.com/image.png", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
+	}
+}
+
+func TestImageProxyStreamsAllowedImage(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = io.WriteString(w, "png-data")
+	}))
+	defer upstream.Close()
+
+	server := newTestServer(t)
+	server.imageHTTP = &http.Client{
+		Transport: rewriteHostTransport(t, upstream),
+	}
+
+	targetURL := strings.Replace(upstream.URL, "127.0.0.1", "img0.hdslb.com", 1)
+	req := httptest.NewRequest(http.MethodGet, "/api/assets/image?url="+neturl.QueryEscape(targetURL), nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if recorder.Body.String() != "png-data" {
+		t.Fatalf("unexpected proxy body: %s", recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("unexpected content type: %s", got)
+	}
+}
+
+func rewriteHostTransport(t *testing.T, upstream *httptest.Server) http.RoundTripper {
+	t.Helper()
+
+	dialAddr := strings.TrimPrefix(upstream.URL, "http://")
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, network, dialAddr)
+	}
+	return base
 }

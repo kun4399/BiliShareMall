@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -22,6 +23,8 @@ import (
 )
 
 const biliCookieHeader = "X-Bili-Cookie"
+const imageProxyReferer = "https://mall.bilibili.com/"
+const imageProxyUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
 
 type AppAPI interface {
 	GetLoginKeyAndUrl() appcore.LoginInfo
@@ -45,12 +48,14 @@ type AppAPI interface {
 type Server struct {
 	api        AppAPI
 	staticRoot string
+	imageHTTP   *http.Client
 }
 
 func NewServer(api AppAPI, staticRoot string) *Server {
 	return &Server{
 		api:        api,
 		staticRoot: staticRoot,
+		imageHTTP:  &http.Client{Timeout: 20 * time.Second},
 	}
 }
 
@@ -92,6 +97,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/catalog/items", s.handleCatalogItems)
 	mux.HandleFunc("GET /api/catalog/items/{skuId}", s.handleCatalogItemDetail)
 	mux.HandleFunc("GET /api/catalog/sku/{skuId}/name", s.handleCatalogSkuName)
+	mux.HandleFunc("GET /api/assets/image", s.handleImageProxy)
 	mux.HandleFunc("GET /api/scrapy/tasks", s.handleListScrapyTasks)
 	mux.HandleFunc("POST /api/scrapy/tasks", s.handleCreateScrapyTask)
 	mux.HandleFunc("DELETE /api/scrapy/tasks/{id}", s.handleDeleteScrapyTask)
@@ -224,6 +230,52 @@ func (s *Server) handleCatalogSkuName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"name": result})
+}
+
+func (s *Server) handleImageProxy(w http.ResponseWriter, r *http.Request) {
+	rawURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	if rawURL == "" {
+		writeError(w, http.StatusBadRequest, errors.New("url is required"))
+		return
+	}
+
+	targetURL, err := normalizeImageProxyURL(rawURL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !isAllowedImageProxyHost(targetURL.Hostname()) {
+		writeError(w, http.StatusBadRequest, errors.New("image host is not allowed"))
+		return
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL.String(), nil)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	req.Header.Set("User-Agent", imageProxyUserAgent)
+	req.Header.Set("Referer", imageProxyReferer)
+	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+
+	resp, err := s.imageHTTP.Do(req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("fetch image failed"))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("image source returned status %d", resp.StatusCode))
+		return
+	}
+
+	if contentType := strings.TrimSpace(resp.Header.Get("Content-Type")); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (s *Server) handleListScrapyTasks(w http.ResponseWriter, _ *http.Request) {
@@ -475,6 +527,42 @@ func int64Query(r *http.Request, key string, fallback int64) (int64, error) {
 
 func biliCookieFromRequest(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get(biliCookieHeader))
+}
+
+func normalizeImageProxyURL(rawURL string) (*neturl.URL, error) {
+	normalized := strings.TrimSpace(rawURL)
+	if strings.HasPrefix(normalized, "//") {
+		normalized = "https:" + normalized
+	}
+	parsed, err := neturl.Parse(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("invalid image url")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("invalid image url")
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("invalid image url")
+	}
+	return parsed, nil
+}
+
+func isAllowedImageProxyHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return false
+	}
+	allowedSuffixes := []string{
+		".hdslb.com",
+		".biliimg.com",
+		".bilibili.com",
+	}
+	for _, suffix := range allowedSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func ListenAndServe(ctx context.Context, addr string, handler http.Handler) error {

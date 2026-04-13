@@ -118,17 +118,36 @@ jobs:
         run: |
           "${HOME}/go/bin/wails" build -m -s -trimpath -skipbindings -tags fts5 -o "${APP_NAME}"
 
+      - name: Inspect build output
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path "./build/bin") {
+            Write-Host "Contents of ./build/bin:"
+            Get-ChildItem -Path "./build/bin" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+          } else {
+            Write-Host "./build/bin does not exist"
+          }
+
       - name: Package Windows archive
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $installer = Get-ChildItem -Path "./build/bin" -Filter "*installer.exe" | Select-Object -First 1
-          if (-not $installer) {
-            Write-Error "NSIS installer not found in ./build/bin"
-            Get-ChildItem -Path "./build/bin" | Format-Table -AutoSize
-            exit 1
+          if ($installer) {
+            Write-Host "Packaging installer: $($installer.FullName)"
+            Compress-Archive -Path $installer.FullName -DestinationPath "./build/bin/${{ matrix.build.archive_name }}" -Force
+            exit 0
           }
-          Compress-Archive -Path $installer.FullName -DestinationPath "./build/bin/${{ matrix.build.archive_name }}" -Force
+          $appBinary = Get-ChildItem -Path "./build/bin" -Filter "${{ env.APP_NAME }}.exe" | Select-Object -First 1
+          if ($appBinary) {
+            Write-Warning "NSIS installer not found, packaging desktop executable instead: $($appBinary.FullName)"
+            Compress-Archive -Path $appBinary.FullName -DestinationPath "./build/bin/${{ matrix.build.archive_name }}" -Force
+            exit 0
+          }
+          Write-Error "Neither NSIS installer nor desktop executable was found in ./build/bin"
+          Get-ChildItem -Path "./build/bin" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+          exit 1
 
       - name: Package macOS archive
         if: runner.os == 'macOS'

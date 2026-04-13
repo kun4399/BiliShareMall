@@ -94,6 +94,17 @@ jobs:
           GOARCH: ${{ matrix.build.GOARCH }}
         run: ~/go/bin/wails build -m -s -trimpath -skipbindings -devtools -tags fts5 -o ${{ env.APP_NAME }}.exe
 
+      - name: Inspect build output
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path "./build/bin") {
+            Write-Host "Contents of ./build/bin:"
+            Get-ChildItem -Path "./build/bin" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+          } else {
+            Write-Host "./build/bin does not exist"
+          }
+
       # Compress: macOS
       - name: Create a compressed file for macOS
         if: runner.os == 'macOS'
@@ -107,8 +118,21 @@ jobs:
       - name: Create a compressed file for Windows
         if: runner.os == 'Windows'
         run: |
-          cd ./build/bin
-          Compress-Archive -Path ${{ env.APP_NAME }}-${{ matrix.build.GOARCH }}-installer.exe -DestinationPath ${{ env.ZIP_FILE }}
+          $installer = Get-ChildItem -Path "./build/bin" -Filter "*installer.exe" | Select-Object -First 1
+          if ($installer) {
+            Write-Host "Packaging installer: $($installer.FullName)"
+            Compress-Archive -Path $installer.FullName -DestinationPath "./build/bin/${{ env.ZIP_FILE }}" -Force
+            exit 0
+          }
+          $appBinary = Get-ChildItem -Path "./build/bin" -Filter "${{ env.APP_NAME }}.exe" | Select-Object -First 1
+          if ($appBinary) {
+            Write-Warning "NSIS installer not found, packaging desktop executable instead: $($appBinary.FullName)"
+            Compress-Archive -Path $appBinary.FullName -DestinationPath "./build/bin/${{ env.ZIP_FILE }}" -Force
+            exit 0
+          }
+          Write-Error "Neither NSIS installer nor desktop executable was found in ./build/bin"
+          Get-ChildItem -Path "./build/bin" -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+          exit 1
 
       #      # Compress: GNU/Linux
       #      - name: Create a compressed file for GNU/Linux
