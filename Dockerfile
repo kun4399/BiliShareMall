@@ -9,7 +9,7 @@ COPY frontend ./
 RUN pnpm install --frozen-lockfile
 RUN pnpm build
 
-FROM golang:1.23-bookworm AS web-builder
+FROM --platform=$TARGETPLATFORM golang:1.23-bookworm AS web-builder
 
 WORKDIR /src
 
@@ -23,12 +23,9 @@ RUN go mod download
 COPY . .
 COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+RUN CGO_ENABLED=1 go build -tags fts5 -o /out/BiliShareMallWeb ./cmd/web
 
-RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -tags fts5 -o /out/BiliShareMallWeb ./cmd/web
-
-FROM debian:bookworm-slim AS runtime
+FROM --platform=$TARGETPLATFORM debian:bookworm-slim AS runtime
 
 ARG DEBIAN_FRONTEND=noninteractive
 

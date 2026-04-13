@@ -122,7 +122,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path "./build/bin/${{ env.APP_NAME }}-${{ matrix.build.goarch }}-installer.exe" -DestinationPath "./build/bin/${{ matrix.build.archive_name }}" -Force
+          $installer = Get-ChildItem -Path "./build/bin" -Filter "*installer.exe" | Select-Object -First 1
+          if (-not $installer) {
+            Write-Error "NSIS installer not found in ./build/bin"
+            Get-ChildItem -Path "./build/bin" | Format-Table -AutoSize
+            exit 1
+          }
+          Compress-Archive -Path $installer.FullName -DestinationPath "./build/bin/${{ matrix.build.archive_name }}" -Force
 
       - name: Package macOS archive
         if: runner.os == 'macOS'
