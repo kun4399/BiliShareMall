@@ -21,6 +21,7 @@ const {
   isTaskRunning,
   getOptionLabel,
   displayLabel,
+  getCompletedRoundCount,
   addScrapy,
   handleClose,
   handleRun,
@@ -126,7 +127,7 @@ const {
           <NStatistic label="折扣" :value="displayLabel(scrapy.discountFilterLabel)" />
           <NStatistic label="价格" :value="displayLabel(scrapy.priceFilterLabel)" />
           <NStatistic label="爬取次数" :value="scrapy.nums" />
-          <NStatistic label="增加数目" :value="scrapy.increaseNumber" />
+          <NStatistic label="完成循环次数" :value="getCompletedRoundCount(scrapy)" />
           <NButton
             v-if="!isTaskRunning(scrapy.id)"
             class="custom-button"

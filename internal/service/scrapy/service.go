@@ -162,15 +162,24 @@ func (s *Service) CreateScrapyItem(item dao.ScrapyItem) int64 {
 }
 
 func (s *Service) StartTask(taskID int, cookies string) error {
-	if _, err := s.d.ReadScrapyItem(taskID); err != nil {
+	scrapyItem, err := s.d.ReadScrapyItem(taskID)
+	if err != nil {
 		return err
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if running := s.runningTasks[taskID]; running != nil && running.cancel != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("task already running")
+	}
+
+	// Every manual start should begin from a clean counter state.
+	scrapyItem.Nums = 0
+	scrapyItem.IncreaseNumber = 0
+	scrapyItem.NextToken = nil
+	if _, err := s.d.UpdateScrapyItem(&scrapyItem); err != nil {
+		s.mu.Unlock()
+		return err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -179,6 +188,9 @@ func (s *Service) StartTask(taskID int, cookies string) error {
 		cookies: cookies,
 		cancel:  cancel,
 	}
+	s.mu.Unlock()
+
+	s.emitEvent("updateScrapyItem", scrapyItem)
 
 	s.wg.Add(1)
 	go s.scrapyLoop(taskID, cookies, ctx)
@@ -342,6 +354,13 @@ func (s *Service) scrapyLoop(taskID int, cookies string, ctx context.Context) {
 		}
 
 		if roundFinished {
+			scrapyItem.IncreaseNumber++
+			if _, err := s.d.UpdateScrapyItem(&scrapyItem); err != nil {
+				log.Error().Err(err).Int("taskID", taskID).Msg("failed to persist scrapy round count")
+				s.emitEvent("scrapy_failed", taskID)
+				return
+			}
+			s.emitEvent("updateScrapyItem", scrapyItem)
 			s.emitEvent("scrapy_round_finished", ScrapyRoundEvent{
 				TaskID:      taskID,
 				CompletedAt: time.Now().UnixMilli(),
@@ -385,7 +404,6 @@ func (s *Service) scrapyTask(taskID int, cookies string, item *dao.ScrapyItem) (
 	if err != nil {
 		return false, err
 	}
-	item.IncreaseNumber += int(changedRows)
 	if _, err = s.d.UpdateScrapyItem(item); err != nil {
 		return false, err
 	}

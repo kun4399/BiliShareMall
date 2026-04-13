@@ -73,6 +73,10 @@ export function useScrapyTasks() {
     return label || '不限';
   }
 
+  function getCompletedRoundCount(item: dao.ScrapyItem) {
+    return item.increaseNumber || 0;
+  }
+
   function isTaskRunning(taskID: number) {
     return runningTaskIds.value.includes(taskID);
   }
@@ -296,6 +300,7 @@ export function useScrapyTasks() {
     isTaskRunning,
     getOptionLabel,
     displayLabel,
+    getCompletedRoundCount,
     addScrapy,
     handleClose,
     handleRun,

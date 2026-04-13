@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useClipboard } from '@vueuse/core';
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { useLoadingBar, useMessage } from 'naive-ui';
 import { scrapy } from '~/wailsjs/go/models';
 import { EventsOn } from '~/wailsjs/runtime/runtime';
@@ -35,8 +35,6 @@ const skuLookupPromiseMap = new Map<number, Promise<string>>();
 const unlisteners: Array<() => void> = [];
 const skuLookupTimeoutMs = 2000;
 let ruleKeySeed = 1;
-
-const enabledRuleCount = computed(() => rules.value.filter(rule => rule.enabled).length);
 
 function createRuleForm(partial?: Partial<MonitorRuleForm>): MonitorRuleForm {
   return {
@@ -379,7 +377,7 @@ onUnmounted(() => {
 
 <template>
   <NSpace vertical size="medium">
-    <NCard title="钉钉监控告警">
+    <NCard title="钉钉 Webhook">
       <NSpace vertical size="small">
         <NInput
           v-model:value="webhook"
@@ -387,9 +385,6 @@ onUnmounted(() => {
           :autosize="{ minRows: 1, maxRows: 2 }"
           placeholder="填写钉钉机器人 webhook（有规则时必填）"
         />
-        <NAlert type="info" title="规则说明">
-          当前共 {{ rules.length }} 条规则，启用 {{ enabledRuleCount }} 条。价格输入单位为“元”。
-        </NAlert>
       </NSpace>
     </NCard>
 

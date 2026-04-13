@@ -222,6 +222,146 @@ func TestServiceEmitsRoundFinishedAndRestartsFromFirstPage(t *testing.T) {
 	}
 }
 
+func TestServiceStartTaskResetsNumsAndRoundCount(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+	now := time.Now()
+	next := "page-2"
+	_, err := db.Db.Exec(
+		`INSERT INTO scrapy_items(
+			id, price_filter, price_filter_label, discount_filter, discount_filter_label,
+			product, product_name, nums, increase_number, next_token, create_time, "order"
+		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		1, "", "不限", "", "不限", "sku-a", "sku-a", 9, 4, next, now, "TIME_DESC",
+	)
+	if err != nil {
+		t.Fatalf("insert scrapy task failed: %v", err)
+	}
+
+	svc := NewService(db, nil)
+	svc.requestInterval = 10 * time.Millisecond
+	svc.restartRoundDelay = 10 * time.Millisecond
+	svc.retryDelay = 20 * time.Millisecond
+	svc.notifier = &mockNotifier{}
+
+	requestStarted := make(chan struct{}, 1)
+	releaseRequest := make(chan struct{})
+	svc.marketFn = func() (marketClient, error) {
+		return &mockMarketClient{
+			fn: func(ctx context.Context, _ bilihttp.MarketListRequest) (domain.MailListResponse, error) {
+				select {
+				case requestStarted <- struct{}{}:
+				default:
+				}
+
+				select {
+				case <-ctx.Done():
+					return domain.MailListResponse{}, ctx.Err()
+				case <-releaseRequest:
+					return fakeListResponseWithNext(nil), nil
+				}
+			},
+		}, nil
+	}
+
+	if err := svc.StartTask(1, "SESSDATA=a;DedeUserID=1;bili_jct=x"); err != nil {
+		t.Fatalf("StartTask error: %v", err)
+	}
+
+	waitUntil(t, 2*time.Second, func() bool {
+		ids := svc.GetRunningTaskIds()
+		return len(ids) == 1 && ids[0] == 1
+	})
+	waitUntil(t, 2*time.Second, func() bool {
+		select {
+		case <-requestStarted:
+			return true
+		default:
+			return false
+		}
+	})
+
+	item, err := db.ReadScrapyItem(1)
+	if err != nil {
+		t.Fatalf("ReadScrapyItem error: %v", err)
+	}
+	if item.Nums != 0 {
+		t.Fatalf("expected nums reset to 0, got %d", item.Nums)
+	}
+	if item.IncreaseNumber != 0 {
+		t.Fatalf("expected increase_number(reset round count) to 0, got %d", item.IncreaseNumber)
+	}
+	if item.NextToken != nil {
+		t.Fatalf("expected next_token reset to nil, got %v", *item.NextToken)
+	}
+
+	if err := svc.DoneTask(1); err != nil {
+		t.Fatalf("DoneTask error: %v", err)
+	}
+	close(releaseRequest)
+	waitUntil(t, 2*time.Second, func() bool {
+		return len(svc.GetRunningTaskIds()) == 0
+	})
+}
+
+func TestServiceCountsCompletedRoundsInsteadOfChangedRows(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+	insertScrapyTask(t, db, 1, "sku-a")
+
+	var eventMu sync.Mutex
+	rounds := 0
+	svc := NewService(db, func(eventName string, payload any) {
+		if eventName != "scrapy_round_finished" {
+			return
+		}
+		if payload.(ScrapyRoundEvent).TaskID != 1 {
+			return
+		}
+		eventMu.Lock()
+		rounds++
+		eventMu.Unlock()
+	})
+	svc.requestInterval = 10 * time.Millisecond
+	svc.restartRoundDelay = 10 * time.Millisecond
+	svc.retryDelay = 20 * time.Millisecond
+	svc.notifier = &mockNotifier{}
+
+	svc.marketFn = func() (marketClient, error) {
+		return &mockMarketClient{
+			fn: func(_ context.Context, _ bilihttp.MarketListRequest) (domain.MailListResponse, error) {
+				// Always finish a round with the same item.
+				// First round inserts 1 row, later rounds insert 0 rows.
+				// Round count should still keep increasing.
+				return fakeListResponseWithNext(nil), nil
+			},
+		}, nil
+	}
+
+	if err := svc.StartTask(1, "SESSDATA=a;DedeUserID=1;bili_jct=x"); err != nil {
+		t.Fatalf("StartTask error: %v", err)
+	}
+
+	waitUntil(t, 2*time.Second, func() bool {
+		eventMu.Lock()
+		defer eventMu.Unlock()
+		return rounds >= 2
+	})
+
+	if err := svc.DoneTask(1); err != nil {
+		t.Fatalf("DoneTask error: %v", err)
+	}
+	waitUntil(t, 2*time.Second, func() bool {
+		return len(svc.GetRunningTaskIds()) == 0
+	})
+
+	item, err := db.ReadScrapyItem(1)
+	if err != nil {
+		t.Fatalf("ReadScrapyItem error: %v", err)
+	}
+	if item.IncreaseNumber < 2 {
+		t.Fatalf("expected round count >= 2, got %d", item.IncreaseNumber)
+	}
+}
+
 func TestTrySendMonitorAlertsMatchesAnyDetailSkuAndRecordsSentEvent(t *testing.T) {
 	db := newScrapyTestDatabase(t)
 	svc := NewService(db, nil)
