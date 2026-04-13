@@ -50,6 +50,10 @@ func (a *App) Startup(ctx context.Context) {
 	if err != nil {
 		log.Panic().Err(err).Msg("database init NewApp Error")
 	}
+	err = a.d.EnsureMonitorRuleRemarkColumn()
+	if err != nil {
+		log.Panic().Err(err).Msg("ensure monitor_rules.remark column error")
+	}
 	//更新version
 	err = a.d.UpdateVersion(DatabaseVersion)
 	if err != nil {

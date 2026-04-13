@@ -42,11 +42,12 @@ type MarketRuntimeConfig struct {
 }
 
 type MonitorRule struct {
-	ID       int64 `json:"id"`
-	SkuID    int64 `json:"skuId"`
-	MinPrice int   `json:"minPrice"`
-	MaxPrice int   `json:"maxPrice"`
-	Enabled  bool  `json:"enabled"`
+	ID       int64  `json:"id"`
+	SkuID    int64  `json:"skuId"`
+	MinPrice int    `json:"minPrice"`
+	MaxPrice int    `json:"maxPrice"`
+	Enabled  bool   `json:"enabled"`
+	Remark   string `json:"remark"`
 }
 
 type MonitorConfig struct {
@@ -230,6 +231,7 @@ func (s *Service) SaveMonitorConfig(config MonitorConfig) error {
 		return fmt.Errorf("webhook is required when monitor rules are configured")
 	}
 	for _, rule := range config.Rules {
+		rule.Remark = strings.TrimSpace(rule.Remark)
 		if rule.SkuID <= 0 {
 			return fmt.Errorf("invalid skuId: %d", rule.SkuID)
 		}
@@ -467,6 +469,7 @@ func toMonitorConfig(config dao.MonitorConfig) MonitorConfig {
 			MinPrice: rule.MinPrice,
 			MaxPrice: rule.MaxPrice,
 			Enabled:  rule.Enabled,
+			Remark:   rule.Remark,
 		})
 	}
 	return MonitorConfig{
@@ -484,6 +487,7 @@ func toDAOMonitorConfig(config MonitorConfig) dao.MonitorConfig {
 			MinPrice: rule.MinPrice,
 			MaxPrice: rule.MaxPrice,
 			Enabled:  rule.Enabled,
+			Remark:   strings.TrimSpace(rule.Remark),
 		})
 	}
 	return dao.MonitorConfig{

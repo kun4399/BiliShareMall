@@ -342,6 +342,7 @@ CREATE TABLE monitor_rules
     min_price  INTEGER NOT NULL,
     max_price  INTEGER NOT NULL,
     enabled    INTEGER NOT NULL DEFAULT 1,
+    remark     TEXT NOT NULL DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -368,5 +369,37 @@ func TestBuildDingTalkMarkdownHasTitleLinkAndPrice(t *testing.T) {
 	}
 	if !strings.Contains(content, "[查看商品](https://example.com/item)") {
 		t.Fatalf("expected markdown link, got %s", content)
+	}
+}
+
+func TestMonitorRuleConversionContainsRemark(t *testing.T) {
+	daoConfig := dao.MonitorConfig{
+		Webhook: "https://oapi.dingtalk.com/robot/send?access_token=abc",
+		Rules: []dao.MonitorRule{
+			{
+				ID:       7,
+				SkuID:    10086,
+				MinPrice: 100,
+				MaxPrice: 200,
+				Enabled:  true,
+				Remark:   "for-test",
+			},
+		},
+	}
+
+	serviceConfig := toMonitorConfig(daoConfig)
+	if len(serviceConfig.Rules) != 1 {
+		t.Fatalf("expected 1 rule after conversion, got %d", len(serviceConfig.Rules))
+	}
+	if serviceConfig.Rules[0].Remark != "for-test" {
+		t.Fatalf("expected service rule remark to be kept, got %q", serviceConfig.Rules[0].Remark)
+	}
+
+	roundtrip := toDAOMonitorConfig(serviceConfig)
+	if len(roundtrip.Rules) != 1 {
+		t.Fatalf("expected 1 rule after roundtrip, got %d", len(roundtrip.Rules))
+	}
+	if roundtrip.Rules[0].Remark != "for-test" {
+		t.Fatalf("expected dao rule remark to be kept, got %q", roundtrip.Rules[0].Remark)
 	}
 }

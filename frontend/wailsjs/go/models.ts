@@ -285,6 +285,7 @@ export namespace scrapy {
 	    minPrice: number;
 	    maxPrice: number;
 	    enabled: boolean;
+	    remark: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new MonitorRule(source);
@@ -297,6 +298,7 @@ export namespace scrapy {
 	        this.minPrice = source["minPrice"];
 	        this.maxPrice = source["maxPrice"];
 	        this.enabled = source["enabled"];
+	        this.remark = source["remark"];
 	    }
 	}
 	export class MonitorConfig {

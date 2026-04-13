@@ -9,11 +9,12 @@ import (
 )
 
 type MonitorRule struct {
-	ID       int64 `json:"id"`
-	SkuID    int64 `json:"skuId"`
-	MinPrice int   `json:"minPrice"`
-	MaxPrice int   `json:"maxPrice"`
-	Enabled  bool  `json:"enabled"`
+	ID       int64  `json:"id"`
+	SkuID    int64  `json:"skuId"`
+	MinPrice int    `json:"minPrice"`
+	MaxPrice int    `json:"maxPrice"`
+	Enabled  bool   `json:"enabled"`
+	Remark   string `json:"remark"`
 }
 
 type MonitorConfig struct {
@@ -34,7 +35,7 @@ func (d *Database) GetMonitorConfig() (MonitorConfig, error) {
 
 	rows, err := d.Db.QueryContext(
 		context.Background(),
-		`SELECT id, sku_id, min_price, max_price, enabled
+		`SELECT id, sku_id, min_price, max_price, enabled, remark
 		FROM monitor_rules
 		ORDER BY id ASC`,
 	)
@@ -46,7 +47,7 @@ func (d *Database) GetMonitorConfig() (MonitorConfig, error) {
 	for rows.Next() {
 		var rule MonitorRule
 		var enabled int
-		if err := rows.Scan(&rule.ID, &rule.SkuID, &rule.MinPrice, &rule.MaxPrice, &enabled); err != nil {
+		if err := rows.Scan(&rule.ID, &rule.SkuID, &rule.MinPrice, &rule.MaxPrice, &enabled, &rule.Remark); err != nil {
 			return config, err
 		}
 		rule.Enabled = enabled == 1
@@ -93,17 +94,19 @@ func (d *Database) SaveMonitorConfig(config MonitorConfig) error {
 		if rule.Enabled {
 			enabled = 1
 		}
+		remark := strings.TrimSpace(rule.Remark)
 
 		if rule.ID > 0 {
 			result, execErr := tx.ExecContext(
 				context.Background(),
 				`UPDATE monitor_rules
-				SET sku_id = ?, min_price = ?, max_price = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
+				SET sku_id = ?, min_price = ?, max_price = ?, enabled = ?, remark = ?, updated_at = CURRENT_TIMESTAMP
 				WHERE id = ?`,
 				rule.SkuID,
 				rule.MinPrice,
 				rule.MaxPrice,
 				enabled,
+				remark,
 				rule.ID,
 			)
 			if execErr != nil {
@@ -121,11 +124,12 @@ func (d *Database) SaveMonitorConfig(config MonitorConfig) error {
 
 		result, execErr := tx.ExecContext(
 			context.Background(),
-			`INSERT INTO monitor_rules(sku_id, min_price, max_price, enabled) VALUES(?, ?, ?, ?)`,
+			`INSERT INTO monitor_rules(sku_id, min_price, max_price, enabled, remark) VALUES(?, ?, ?, ?, ?)`,
 			rule.SkuID,
 			rule.MinPrice,
 			rule.MaxPrice,
 			enabled,
+			remark,
 		)
 		if execErr != nil {
 			return execErr
@@ -168,7 +172,7 @@ func (d *Database) SaveMonitorConfig(config MonitorConfig) error {
 func (d *Database) ReadEnabledMonitorRules() ([]MonitorRule, error) {
 	rows, err := d.Db.QueryContext(
 		context.Background(),
-		`SELECT id, sku_id, min_price, max_price, enabled
+		`SELECT id, sku_id, min_price, max_price, enabled, remark
 		FROM monitor_rules
 		WHERE enabled = 1
 		ORDER BY id ASC`,
@@ -182,7 +186,7 @@ func (d *Database) ReadEnabledMonitorRules() ([]MonitorRule, error) {
 	for rows.Next() {
 		var rule MonitorRule
 		var enabled int
-		if err := rows.Scan(&rule.ID, &rule.SkuID, &rule.MinPrice, &rule.MaxPrice, &enabled); err != nil {
+		if err := rows.Scan(&rule.ID, &rule.SkuID, &rule.MinPrice, &rule.MaxPrice, &enabled, &rule.Remark); err != nil {
 			return nil, err
 		}
 		rule.Enabled = enabled == 1
@@ -201,6 +205,43 @@ func (d *Database) ReadMonitorWebhook() (string, error) {
 		return "", nil
 	}
 	return webhook, err
+}
+
+func (d *Database) EnsureMonitorRuleRemarkColumn() error {
+	rows, err := d.Db.QueryContext(context.Background(), `PRAGMA table_info(monitor_rules)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	hasRemark := false
+	for rows.Next() {
+		var cid int
+		var name string
+		var dataType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == "remark" {
+			hasRemark = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if hasRemark {
+		return nil
+	}
+
+	_, err = d.Db.ExecContext(
+		context.Background(),
+		`ALTER TABLE monitor_rules ADD COLUMN remark TEXT NOT NULL DEFAULT ''`,
+	)
+	return err
 }
 
 func (d *Database) ReserveMonitorAlert(ruleID, c2cItemsID int64, taskID int) (bool, error) {

@@ -16,7 +16,8 @@ const {
   pagination,
   emptyDescription,
   goDetail,
-  search
+  search,
+  refresh
 } = useCatalogList();
 </script>
 
@@ -35,6 +36,12 @@ const {
               <Search />
             </template>
             搜索
+          </NButton>
+          <NButton @click="refresh">
+            <template #icon>
+              <icon-mdi-refresh />
+            </template>
+            刷新
           </NButton>
         </NSpace>
       </template>

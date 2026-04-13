@@ -1,7 +1,6 @@
-import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onActivated, onMounted, ref } from 'vue';
 import { useMessage } from 'naive-ui';
 import { useRouter } from 'vue-router';
-import { EventsOn } from '~/wailsjs/runtime/runtime';
 import type { catalog } from '~/wailsjs/go/models';
 import { fetchCatalogList } from './api';
 
@@ -9,8 +8,6 @@ interface SortWay {
   value: number;
   label: string;
 }
-
-const REALTIME_REFRESH_DEBOUNCE_MS = 500;
 
 export function useCatalogList() {
   const router = useRouter();
@@ -44,8 +41,6 @@ export function useCatalogList() {
     return '当前筛选条件下暂无商品';
   });
 
-  let unlistenC2CItemsChanged: (() => void) | null = null;
-  let pendingRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   let hasActivatedOnce = false;
 
   function resolveQuery(firstPage: boolean) {
@@ -62,40 +57,6 @@ export function useCatalogList() {
       fromPrice,
       toPrice
     };
-  }
-
-  function clearRealtimeRefreshTimer() {
-    if (pendingRefreshTimer) {
-      clearTimeout(pendingRefreshTimer);
-      pendingRefreshTimer = null;
-    }
-  }
-
-  function queueRealtimeRefresh() {
-    if (pendingRefreshTimer) {
-      return;
-    }
-    pendingRefreshTimer = setTimeout(() => {
-      pendingRefreshTimer = null;
-      search(false);
-    }, REALTIME_REFRESH_DEBOUNCE_MS);
-  }
-
-  function ensureRealtimeSubscription() {
-    if (unlistenC2CItemsChanged) {
-      return;
-    }
-    unlistenC2CItemsChanged = EventsOn('c2c_items_changed', _ => {
-      queueRealtimeRefresh();
-    });
-  }
-
-  function removeRealtimeSubscription() {
-    if (unlistenC2CItemsChanged) {
-      unlistenC2CItemsChanged();
-      unlistenC2CItemsChanged = null;
-    }
-    clearRealtimeRefreshTimer();
   }
 
   function goDetail(item: catalog.C2CItemGroupVO) {
@@ -130,26 +91,20 @@ export function useCatalogList() {
       });
   }
 
+  function refresh() {
+    search(false);
+  }
+
   onMounted(() => {
-    ensureRealtimeSubscription();
     search();
   });
 
   onActivated(() => {
-    ensureRealtimeSubscription();
     if (hasActivatedOnce) {
       search();
       return;
     }
     hasActivatedOnce = true;
-  });
-
-  onDeactivated(() => {
-    removeRealtimeSubscription();
-  });
-
-  onUnmounted(() => {
-    removeRealtimeSubscription();
   });
 
   return {
@@ -165,6 +120,7 @@ export function useCatalogList() {
     pagination,
     emptyDescription,
     goDetail,
-    search
+    search,
+    refresh
   };
 }

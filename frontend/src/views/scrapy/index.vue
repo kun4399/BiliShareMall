@@ -177,8 +177,24 @@ const {
 }
 
 .running-card {
-  background-color: #dbf5ca;
-  color: #333;
-  border: 1px solid #ccc;
+  --n-color: #dbf5ca;
+  --n-color-modal: #dbf5ca;
+  --n-border-color: #c3e6b8;
+  --n-text-color: #1f3d18;
+  --n-title-text-color: #1f3d18;
+  color: #1f3d18;
+}
+
+.running-card :is(.n-card-header__main, .n-card-header__extra, .n-card__content) {
+  color: inherit;
+}
+
+html.dark .running-card {
+  --n-color: #24412f;
+  --n-color-modal: #24412f;
+  --n-border-color: #3a6a48;
+  --n-text-color: #e8f7ea;
+  --n-title-text-color: #e8f7ea;
+  color: #e8f7ea;
 }
 </style>

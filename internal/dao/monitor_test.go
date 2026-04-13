@@ -17,12 +17,14 @@ func TestSaveAndLoadMonitorConfig(t *testing.T) {
 				MinPrice: 1000,
 				MaxPrice: 2000,
 				Enabled:  true,
+				Remark:   "自用规则",
 			},
 			{
 				SkuID:    1002,
 				MinPrice: 3000,
 				MaxPrice: 5000,
 				Enabled:  false,
+				Remark:   "备用规则",
 			},
 		},
 	})
@@ -42,6 +44,9 @@ func TestSaveAndLoadMonitorConfig(t *testing.T) {
 	}
 	if config.Rules[0].ID <= 0 {
 		t.Fatalf("expected persisted rule id, got %d", config.Rules[0].ID)
+	}
+	if config.Rules[0].Remark != "自用规则" {
+		t.Fatalf("expected remark to be persisted, got %q", config.Rules[0].Remark)
 	}
 
 	rules, err := db.ReadEnabledMonitorRules()
@@ -66,6 +71,7 @@ func TestReserveMonitorAlertDeduplicates(t *testing.T) {
 				MinPrice: 1000,
 				MaxPrice: 2000,
 				Enabled:  true,
+				Remark:   "dup-test",
 			},
 		},
 	}); err != nil {
@@ -100,8 +106,8 @@ func TestSaveMonitorConfigDeletesRemovedRules(t *testing.T) {
 	if err := db.SaveMonitorConfig(MonitorConfig{
 		Webhook: "https://oapi.dingtalk.com/robot/send?access_token=abc",
 		Rules: []MonitorRule{
-			{SkuID: 1, MinPrice: 100, MaxPrice: 200, Enabled: true},
-			{SkuID: 2, MinPrice: 300, MaxPrice: 400, Enabled: true},
+			{SkuID: 1, MinPrice: 100, MaxPrice: 200, Enabled: true, Remark: "keep-me"},
+			{SkuID: 2, MinPrice: 300, MaxPrice: 400, Enabled: true, Remark: "remove-me"},
 		},
 	}); err != nil {
 		t.Fatalf("initial SaveMonitorConfig error: %v", err)
@@ -117,6 +123,7 @@ func TestSaveMonitorConfigDeletesRemovedRules(t *testing.T) {
 
 	keep := loaded.Rules[0]
 	keep.MaxPrice = 250
+	keep.Remark = "updated-remark"
 	if err := db.SaveMonitorConfig(MonitorConfig{
 		Webhook: loaded.Webhook,
 		Rules:   []MonitorRule{keep},
@@ -136,6 +143,9 @@ func TestSaveMonitorConfigDeletesRemovedRules(t *testing.T) {
 	}
 	if loaded.Rules[0].MaxPrice != 250 {
 		t.Fatalf("expected updated max price 250, got %d", loaded.Rules[0].MaxPrice)
+	}
+	if loaded.Rules[0].Remark != "updated-remark" {
+		t.Fatalf("expected updated remark, got %q", loaded.Rules[0].Remark)
 	}
 }
 
@@ -176,6 +186,7 @@ CREATE TABLE monitor_rules
     min_price  INTEGER NOT NULL,
     max_price  INTEGER NOT NULL,
     enabled    INTEGER NOT NULL DEFAULT 1,
+    remark     TEXT NOT NULL DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

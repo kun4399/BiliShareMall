@@ -10,6 +10,7 @@ interface MonitorRuleForm {
   minPriceYuan: number | null;
   maxPriceYuan: number | null;
   enabled: boolean;
+  remark: string;
 }
 
 const message = useMessage();
@@ -26,7 +27,8 @@ function addRule() {
     skuId: null,
     minPriceYuan: null,
     maxPriceYuan: null,
-    enabled: true
+    enabled: true,
+    remark: ''
   });
 }
 
@@ -71,7 +73,8 @@ async function loadConfig() {
       skuId: rule.skuId || null,
       minPriceYuan: toYuan(rule.minPrice || 0),
       maxPriceYuan: toYuan(rule.maxPrice || 0),
-      enabled: rule.enabled ?? true
+      enabled: rule.enabled ?? true,
+      remark: rule.remark || ''
     }));
   } catch (err: any) {
     message.error(err?.message || '读取配置失败');
@@ -100,7 +103,8 @@ async function saveConfig() {
         skuId: Number(rule.skuId),
         minPrice: toCents(Number(rule.minPriceYuan)),
         maxPrice: toCents(Number(rule.maxPriceYuan)),
-        enabled: rule.enabled
+        enabled: rule.enabled,
+        remark: rule.remark.trim()
       })
     )
   });
@@ -178,6 +182,14 @@ onMounted(() => {
             </NFormItemGi>
             <NFormItemGi label="最高价（元）">
               <NInputNumber v-model:value="rule.maxPriceYuan" :min="0" :precision="2" placeholder="如 199.00" />
+            </NFormItemGi>
+            <NFormItemGi label="备注" :span="3">
+              <NInput
+                v-model:value="rule.remark"
+                placeholder="可填写用途说明（例如：自用观察）"
+                maxlength="80"
+                show-count
+              />
             </NFormItemGi>
           </NGrid>
         </NCard>
