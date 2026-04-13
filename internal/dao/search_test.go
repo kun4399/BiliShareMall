@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/mikumifa/BiliShareMall/internal/domain"
+	"github.com/kun4399/BiliShareMall/internal/domain"
 )
 
 func TestSaveMailListToDBUpsertsAndGroupsBySku(t *testing.T) {

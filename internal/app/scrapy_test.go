@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/mikumifa/BiliShareMall/internal/dao"
+	"github.com/kun4399/BiliShareMall/internal/dao"
 )
 
 func TestGetMarketRuntimeConfigReturnsFallbackWithoutCookie(t *testing.T) {

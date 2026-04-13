@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	appcore "github.com/mikumifa/BiliShareMall/internal/app"
-	"github.com/mikumifa/BiliShareMall/internal/dao"
-	"github.com/mikumifa/BiliShareMall/internal/events"
+	appcore "github.com/kun4399/BiliShareMall/internal/app"
+	"github.com/kun4399/BiliShareMall/internal/dao"
+	"github.com/kun4399/BiliShareMall/internal/events"
 )
 
 type stubAPI struct {

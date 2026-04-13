@@ -6,10 +6,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mikumifa/BiliShareMall/internal/app"
-	"github.com/mikumifa/BiliShareMall/internal/bootstrap"
-	"github.com/mikumifa/BiliShareMall/internal/util"
-	websrv "github.com/mikumifa/BiliShareMall/internal/web"
+	"github.com/kun4399/BiliShareMall/internal/app"
+	"github.com/kun4399/BiliShareMall/internal/bootstrap"
+	"github.com/kun4399/BiliShareMall/internal/util"
+	websrv "github.com/kun4399/BiliShareMall/internal/web"
 	"github.com/rs/zerolog/log"
 )
 

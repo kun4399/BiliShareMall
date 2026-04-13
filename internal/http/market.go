@@ -5,7 +5,7 @@ import (
 	"fmt"
 	neturl "net/url"
 
-	"github.com/mikumifa/BiliShareMall/internal/domain"
+	"github.com/kun4399/BiliShareMall/internal/domain"
 )
 
 const (

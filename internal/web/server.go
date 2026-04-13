@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	appcore "github.com/mikumifa/BiliShareMall/internal/app"
-	"github.com/mikumifa/BiliShareMall/internal/dao"
-	"github.com/mikumifa/BiliShareMall/internal/events"
-	"github.com/mikumifa/BiliShareMall/internal/util"
+	appcore "github.com/kun4399/BiliShareMall/internal/app"
+	"github.com/kun4399/BiliShareMall/internal/dao"
+	"github.com/kun4399/BiliShareMall/internal/events"
+	"github.com/kun4399/BiliShareMall/internal/util"
 	"github.com/rs/zerolog/log"
 )
 

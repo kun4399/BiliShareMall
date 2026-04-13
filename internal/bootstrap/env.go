@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	. "github.com/mikumifa/BiliShareMall/internal/domain"
-	. "github.com/mikumifa/BiliShareMall/internal/util"
+	. "github.com/kun4399/BiliShareMall/internal/domain"
+	. "github.com/kun4399/BiliShareMall/internal/util"
 	"github.com/rs/zerolog/log"
 )
 

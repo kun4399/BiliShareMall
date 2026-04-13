@@ -8,8 +8,8 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/mikumifa/BiliShareMall/internal/dao"
-	bilihttp "github.com/mikumifa/BiliShareMall/internal/http"
+	"github.com/kun4399/BiliShareMall/internal/dao"
+	bilihttp "github.com/kun4399/BiliShareMall/internal/http"
 	cache "github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog/log"
 )

@@ -12,9 +12,9 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/mikumifa/BiliShareMall/internal/dao"
-	"github.com/mikumifa/BiliShareMall/internal/domain"
-	bilihttp "github.com/mikumifa/BiliShareMall/internal/http"
+	"github.com/kun4399/BiliShareMall/internal/dao"
+	"github.com/kun4399/BiliShareMall/internal/domain"
+	bilihttp "github.com/kun4399/BiliShareMall/internal/http"
 )
 
 type mockMarketClient struct {

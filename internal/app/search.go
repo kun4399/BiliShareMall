@@ -1,6 +1,6 @@
 package app
 
-import catalogsvc "github.com/mikumifa/BiliShareMall/internal/service/catalog"
+import catalogsvc "github.com/kun4399/BiliShareMall/internal/service/catalog"
 
 type C2CItemGroupListVO = catalogsvc.C2CItemGroupListVO
 type C2CItemGroupVO = catalogsvc.C2CItemGroupVO

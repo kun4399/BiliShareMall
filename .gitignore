@@ -114,3 +114,9 @@ main_local_test.go
 frontend/wailsjs/runtime/runtime.js
 frontend/wailsjs/runtime/runtime.d.ts
 .cache/
+
+# local IDE/project metadata
+.idea/
+
+# generated frontend checksum file
+frontend/package.json.md5

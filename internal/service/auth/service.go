@@ -1,7 +1,7 @@
 package auth
 
 import (
-	bilihttp "github.com/mikumifa/BiliShareMall/internal/http"
+	bilihttp "github.com/kun4399/BiliShareMall/internal/http"
 )
 
 type LoginInfo struct {

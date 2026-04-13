@@ -2,9 +2,9 @@ package main
 
 import (
 	"embed"
-	app "github.com/mikumifa/BiliShareMall/internal/app"
-	"github.com/mikumifa/BiliShareMall/internal/bootstrap"
-	. "github.com/mikumifa/BiliShareMall/internal/util"
+	app "github.com/kun4399/BiliShareMall/internal/app"
+	"github.com/kun4399/BiliShareMall/internal/bootstrap"
+	. "github.com/kun4399/BiliShareMall/internal/util"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"

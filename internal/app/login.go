@@ -1,7 +1,7 @@
 package app
 
 import (
-	authsvc "github.com/mikumifa/BiliShareMall/internal/service/auth"
+	authsvc "github.com/kun4399/BiliShareMall/internal/service/auth"
 	"github.com/rs/zerolog/log"
 )
 

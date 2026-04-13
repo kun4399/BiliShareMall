@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/mikumifa/BiliShareMall/internal/dao"
-	scrapysvc "github.com/mikumifa/BiliShareMall/internal/service/scrapy"
+	"github.com/kun4399/BiliShareMall/internal/dao"
+	scrapysvc "github.com/kun4399/BiliShareMall/internal/service/scrapy"
 )
 
 type MarketFilterOption = scrapysvc.MarketFilterOption

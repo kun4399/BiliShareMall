@@ -1,13 +1,13 @@
 <div align="center">
-  <a href="https://github.com/mikumifa/BiliShareMall" target="_blank">
+  <a href="https://github.com/kun4399/BiliShareMall" target="_blank">
     <img width="200" src="build/appicon.png" alt="logo">
   </a>
   <h1 id="koishi">BiliShareMall</h1>
 
-![GitHub all releases](https://img.shields.io/github/downloads/mikumifa/BiliShareMall/total)
-![GitHub release (with filter)](https://img.shields.io/github/v/release/mikumifa/BiliShareMall)
-![GitHub issues](https://img.shields.io/github/issues/mikumifa/BiliShareMall)
-![GitHub Repo stars](https://img.shields.io/github/stars/mikumifa/BiliShareMall)
+![GitHub all releases](https://img.shields.io/github/downloads/kun4399/BiliShareMall/total)
+![GitHub release (with filter)](https://img.shields.io/github/v/release/kun4399/BiliShareMall)
+![GitHub issues](https://img.shields.io/github/issues/kun4399/BiliShareMall)
+![GitHub Repo stars](https://img.shields.io/github/stars/kun4399/BiliShareMall)
 
 </div>
 
@@ -16,7 +16,7 @@
 ## 快速安装
 
 下载最新 release（按系统选择安装包）：
-[https://github.com/mikumifa/BiliShareMall/releases](https://github.com/mikumifa/BiliShareMall/releases)
+[https://github.com/kun4399/BiliShareMall/releases](https://github.com/kun4399/BiliShareMall/releases)
 
 Windows 推荐使用 `installer.exe` 结尾的安装包。
 
@@ -135,8 +135,8 @@ make build-web
 
 ### 2) 程序使用问题 / bug 反馈
 
-- 使用讨论：<https://github.com/mikumifa/BiliShareMall/discussions>
-- 提交 bug 或需求：<https://github.com/mikumifa/BiliShareMall/issues/new/choose>
+- 使用讨论：<https://github.com/kun4399/BiliShareMall/discussions>
+- 提交 bug 或需求：<https://github.com/kun4399/BiliShareMall/issues/new/choose>
 
 ### 3) Linux / 远程服务器部署说明
 
@@ -144,35 +144,6 @@ make build-web
 - Web API 与前端静态资源由同一个 Go 进程提供。
 - 浏览器端会像桌面端一样保存 B 站 cookie，并通过 `X-Bili-Cookie` 请求头传给后端需要登录态的接口。
 
-## 项目贡献者
+## 维护信息
 
-<!-- readme: collaborators,contributors -start -->
-<table>
-	<tbody>
-		<tr>
-            <td align="center">
-                <a href="https://github.com/kun4399">
-                    <img src="https://avatars.githubusercontent.com/u/95582144?v=4" width="100;" alt="kun4399"/>
-                    <br />
-                    <sub><b>Yukun Gao</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/mikumifa">
-                    <img src="https://avatars.githubusercontent.com/u/99951454?v=4" width="100;" alt="mikumifa"/>
-                    <br />
-                    <sub><b>mikumifa</b></sub>
-                </a>
-            </td>
-		</tr>
-	<tbody>
-</table>
-<!-- readme: collaborators,contributors -end -->
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=mikumifa/BiliShareMall&type=Date)](https://star-history.com/#mikumifa/BiliShareMall&Date)
-
-## 捐赠
-
-如果你想支持这个项目：[爱发电](https://afdian.com/a/mikumifa)
+- 仓库维护者：<https://github.com/kun4399>

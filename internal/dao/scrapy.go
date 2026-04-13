@@ -2,7 +2,7 @@ package dao
 
 import (
 	"context"
-	"github.com/mikumifa/BiliShareMall/internal/domain"
+	"github.com/kun4399/BiliShareMall/internal/domain"
 	"github.com/rs/zerolog/log"
 	"time"
 )

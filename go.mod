@@ -1,4 +1,4 @@
-module github.com/mikumifa/BiliShareMall
+module github.com/kun4399/BiliShareMall
 
 go 1.23
 
