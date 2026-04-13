@@ -21,6 +21,7 @@ declare module "@elegant-router/types" {
     "404": "/404";
     "500": "/500";
     "home": "/home";
+    "home-detail": "/home/:skuId";
     "iframe-page": "/iframe-page/:url";
     "login": "/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?";
     "scrapy": "/scrapy";
@@ -59,6 +60,7 @@ declare module "@elegant-router/types" {
     | "404"
     | "500"
     | "home"
+    | "home-detail"
     | "iframe-page"
     | "login"
     | "scrapy"
@@ -83,6 +85,7 @@ declare module "@elegant-router/types" {
     | "500"
     | "iframe-page"
     | "login"
+    | "home-detail"
     | "home"
     | "scrapy"
   >;

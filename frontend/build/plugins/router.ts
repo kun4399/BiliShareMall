@@ -19,6 +19,10 @@ export function setupElegantRouter() {
         return `/login/:module(${moduleReg})?`;
       }
 
+      if (key === 'home-detail') {
+        return '/home/:skuId';
+      }
+
       return routePath;
     },
     onRouteMetaGen(routeName) {
@@ -30,6 +34,12 @@ export function setupElegantRouter() {
         title: key,
         i18nKey: `route.${key}` as App.I18n.I18nKey
       };
+
+      if (key === 'home-detail') {
+        meta.title = '商品详情';
+        meta.hideInMenu = true;
+        meta.activeMenu = 'home';
+      }
 
       if (constantRoutes.includes(key)) {
         meta.constant = true;

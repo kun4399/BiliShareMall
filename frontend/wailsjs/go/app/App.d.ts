@@ -15,11 +15,11 @@ export function GetMarketRuntimeConfig(arg1:string):Promise<app.MarketRuntimeCon
 
 export function GetNowRunTaskId():Promise<number>;
 
-export function ListC2CItem(arg1:number,arg2:number,arg3:string,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number,arg9:boolean,arg10:string):Promise<app.C2CItemListVO>;
+export function ListC2CItem(arg1:number,arg2:number,arg3:string,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number):Promise<app.C2CItemGroupListVO>;
+
+export function ListC2CItemDetailBySku(arg1:number,arg2:number,arg3:number,arg4:number,arg5:string,arg6:string):Promise<app.C2CItemDetailListVO>;
 
 export function ReadAllScrapyItems():Promise<Array<dao.ScrapyItem>>;
-
-export function RemoveErrorItem(arg1:Array<app.C2CItemVO>,arg2:string):Promise<boolean>;
 
 export function StartTask(arg1:number,arg2:string):Promise<void>;
 

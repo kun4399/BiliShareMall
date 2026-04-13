@@ -28,18 +28,27 @@ VALUES (1, 1, CURRENT_TIMESTAMP);
 
 CREATE TABLE IF NOT EXISTS c2c_items
 (
-    c2c_items_id      INTEGER NOT NULL UNIQUE, -- 主键，确保唯一性
+    c2c_items_id      INTEGER PRIMARY KEY, -- 主键，确保唯一性
     type              INTEGER,
     c2c_items_name    TEXT    NOT NULL,
+    detail_name       TEXT,
+    detail_img        TEXT,
+    sku_id            INTEGER,
+    items_id          INTEGER,
     total_items_count INTEGER,
     price             INTEGER,
     show_price        TEXT,
     show_market_price TEXT,
-    uid               TEXT,
+    seller_uid        TEXT,
+    seller_name       TEXT,
     payment_time      INTEGER,
+    publish_time      INTEGER,
     is_my_publish     BOOLEAN,
     uface             TEXT,
-    uname             TEXT,
+    raw_status        INTEGER,
+    raw_sale_status   INTEGER,
+    normalized_status TEXT    NOT NULL DEFAULT '在售',
+    status_checked_at DATETIME,
     created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
 );

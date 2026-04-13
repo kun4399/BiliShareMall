@@ -6,33 +6,96 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/mikumifa/BiliShareMall/internal/dao"
 	bilihttp "github.com/mikumifa/BiliShareMall/internal/http"
-	"github.com/mikumifa/BiliShareMall/internal/util"
 	"github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog/log"
 )
 
-type C2CItemListVO struct {
-	Items       []C2CItemVO `json:"items"`
-	Total       int         `json:"total"`
-	TotalPages  int         `json:"totalPages"`
-	CurrentPage int         `json:"currentPage"`
+type C2CItemGroupListVO struct {
+	Items       []C2CItemGroupVO `json:"items"`
+	Total       int              `json:"total"`
+	TotalPages  int              `json:"totalPages"`
+	CurrentPage int              `json:"currentPage"`
 }
 
-type C2CItemVO struct {
-	C2CItemsID      int64   `json:"c2cItemsId"`
-	C2CItemsName    string  `json:"c2cItemsName"`
-	TotalItemsCount int     `json:"totalItemsCount"`
-	Price           float64 `json:"price"`
-	ShowPrice       string  `json:"showPrice"`
+type C2CItemGroupVO struct {
+	SkuID             int64  `json:"skuId"`
+	C2CItemsName      string `json:"c2cItemsName"`
+	DetailImg         string `json:"detailImg"`
+	ItemCount         int    `json:"itemCount"`
+	LatestPublishTime int64  `json:"latestPublishTime"`
 }
 
-func (a *App) ListC2CItem(page, pageSize int, filterName string, sortOption int, startTime, endTime int64, fromPrice, toPrice int, used bool, cookieStr string) (ret C2CItemListVO, err error) {
+type C2CItemDetailListVO struct {
+	SkuID        int64             `json:"skuId"`
+	C2CItemsName string            `json:"c2cItemsName"`
+	DetailImg    string            `json:"detailImg"`
+	Items        []C2CItemDetailVO `json:"items"`
+	Total        int               `json:"total"`
+	TotalPages   int               `json:"totalPages"`
+	CurrentPage  int               `json:"currentPage"`
+}
+
+type C2CItemDetailVO struct {
+	C2CItemsID  int64   `json:"c2cItemsId"`
+	SkuID       int64   `json:"skuId"`
+	Price       float64 `json:"price"`
+	ShowPrice   string  `json:"showPrice"`
+	SellerName  string  `json:"sellerName"`
+	SellerUID   string  `json:"sellerUID"`
+	PublishTime int64   `json:"publishTime"`
+	Status      string  `json:"status"`
+	Link        string  `json:"link"`
+}
+
+func (a *App) ListC2CItem(page, pageSize int, filterName string, sortOption int, startTime, endTime int64, fromPrice, toPrice int) (ret C2CItemGroupListVO, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error().Any("panic", r).Bytes("stack", debug.Stack()).Msg("panic recovered in ListC2CItem")
-			ret = C2CItemListVO{}
+			ret = C2CItemGroupListVO{}
 			err = fmt.Errorf("search failed due to internal error")
+		}
+	}()
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 12
+	}
+
+	items, total, err := a.d.ReadC2CItemGroups(page, pageSize, filterName, sortOption, startTime, endTime, fromPrice, toPrice)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to list grouped items")
+		return C2CItemGroupListVO{}, err
+	}
+
+	result := make([]C2CItemGroupVO, 0, len(items))
+	for _, item := range items {
+		result = append(result, C2CItemGroupVO{
+			SkuID:             item.SkuID,
+			C2CItemsName:      item.C2CItemsName,
+			DetailImg:         item.DetailImg,
+			ItemCount:         item.ItemCount,
+			LatestPublishTime: item.LatestPublishTime,
+		})
+	}
+
+	return C2CItemGroupListVO{
+		Items:       result,
+		Total:       total,
+		TotalPages:  calcTotalPages(total, pageSize),
+		CurrentPage: page,
+	}, nil
+}
+
+func (a *App) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOption int, statusFilter, cookieStr string) (ret C2CItemDetailListVO, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Any("panic", r).Bytes("stack", debug.Stack()).Msg("panic recovered in ListC2CItemDetailBySku")
+			ret = C2CItemDetailListVO{}
+			err = fmt.Errorf("detail query failed due to internal error")
 		}
 	}()
 
@@ -43,88 +106,107 @@ func (a *App) ListC2CItem(page, pageSize int, filterName string, sortOption int,
 		pageSize = 10
 	}
 
-	log.Info().
-		Int("page", page).
-		Int("pageSize", pageSize).
-		Str("filterName", filterName).
-		Int("sortOption", sortOption).
-		Int64("startTime", startTime).
-		Int64("endTime", endTime).
-		Int("fromPrice", fromPrice).
-		Int("toPrice", toPrice).
-		Msg("Listing C2C items with parameters")
-
-	readAndConvert := func() ([]C2CItemVO, int, error) {
-		items, total, err := a.d.ReadCSCItems(page, pageSize, filterName, sortOption, util.TimestampToTime(startTime), util.TimestampToTime(endTime), fromPrice, toPrice)
-		if err != nil {
-			return nil, 0, err
-		}
-		result := make([]C2CItemVO, 0, len(items))
-		for _, item := range items {
-			vo := C2CItemVO{
-				C2CItemsID:      item.C2CItemsID,
-				C2CItemsName:    item.C2CItemsName,
-				TotalItemsCount: item.TotalItemsCount,
-				Price:           float64(item.Price) / 100,
-				ShowPrice:       item.ShowPrice,
-			}
-			result = append(result, vo)
-		}
-		return result, total, nil
-	}
-
-	result, total, err := readAndConvert()
+	meta, err := a.d.GetC2CItemGroupMeta(skuID)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to list items")
-		return C2CItemListVO{}, err
-	}
-	if used && cookieStr == "" {
-		return C2CItemListVO{}, fmt.Errorf("请先登录后再开启下架商品过滤")
+		log.Error().Err(err).Int64("skuId", skuID).Msg("failed to load group meta")
+		return C2CItemDetailListVO{}, err
 	}
 
-	for used && a.RemoveErrorItem(result, cookieStr) {
-		result, total, err = readAndConvert()
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to list items after removing unavailable items")
-			return C2CItemListVO{}, err
+	if cookieStr != "" && statusFilter != "" {
+		allItems, readErr := a.d.ReadAllC2CItemDetailsBySku(skuID)
+		if readErr == nil {
+			if _, refreshErr := a.refreshDetailStatuses(allItems, cookieStr, true); refreshErr != nil {
+				log.Warn().Err(refreshErr).Int64("skuId", skuID).Msg("failed to refresh all item statuses for filtered query")
+			}
 		}
 	}
 
-	totalPages := 1
-	if total > 0 {
-		totalPages = (total + pageSize - 1) / pageSize
+	items, total, err := a.d.ReadC2CItemDetailsBySku(skuID, page, pageSize, sortOption, statusFilter)
+	if err != nil {
+		log.Error().Err(err).Int64("skuId", skuID).Msg("failed to list item details")
+		return C2CItemDetailListVO{}, err
 	}
 
-	return C2CItemListVO{
-		Items:       result,
-		Total:       total,
-		TotalPages:  totalPages,
-		CurrentPage: page,
+	if cookieStr != "" && statusFilter == "" {
+		changed, refreshErr := a.refreshDetailStatuses(items, cookieStr, true)
+		if refreshErr != nil {
+			log.Warn().Err(refreshErr).Int64("skuId", skuID).Msg("failed to refresh current page item statuses")
+		}
+		if changed {
+			items, total, err = a.d.ReadC2CItemDetailsBySku(skuID, page, pageSize, sortOption, statusFilter)
+			if err != nil {
+				return C2CItemDetailListVO{}, err
+			}
+		}
+	}
+
+	result := make([]C2CItemDetailVO, 0, len(items))
+	for _, item := range items {
+		result = append(result, C2CItemDetailVO{
+			C2CItemsID:  item.C2CItemsID,
+			SkuID:       item.SkuID,
+			Price:       float64(item.Price) / 100,
+			ShowPrice:   item.ShowPrice,
+			SellerName:  item.SellerName,
+			SellerUID:   item.SellerUID,
+			PublishTime: item.PublishTime,
+			Status:      item.NormalizedStatus,
+			Link:        buildItemLink(item.C2CItemsID),
+		})
+	}
+
+	return C2CItemDetailListVO{
+		SkuID:        meta.SkuID,
+		C2CItemsName: meta.C2CItemsName,
+		DetailImg:    meta.DetailImg,
+		Items:        result,
+		Total:        total,
+		TotalPages:   calcTotalPages(total, pageSize),
+		CurrentPage:  page,
 	}, nil
 }
-func (a *App) RemoveErrorItem(items []C2CItemVO, cookieStr string) bool {
-	remove := false
+
+func (a *App) refreshDetailStatuses(items []dao.CSCItem, cookieStr string, forceRefresh bool) (bool, error) {
+	changed := false
+	var firstErr error
+
 	for _, item := range items {
-		canBuy, err := a.checkItemStatus(item.C2CItemsID, int(item.Price*100), cookieStr)
+		canBuy, err := a.checkItemStatus(item.C2CItemsID, item.Price, cookieStr, forceRefresh)
 		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
 			log.Error().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to check item status")
 			continue
 		}
-		if !canBuy {
-			err = a.d.DeleteCSCItem(item.C2CItemsID)
-			if err != nil {
-				log.Error().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to delete unavailable item")
-				continue
+
+		status := dao.NormalizeMarketStatus(item.RawStatus, item.RawSaleStatus, &canBuy)
+		if err := a.d.UpdateC2CItemStatus(item.C2CItemsID, status, time.Now()); err != nil {
+			if firstErr == nil {
+				firstErr = err
 			}
-			remove = true
+			log.Error().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to update item status")
+			continue
+		}
+		if status != item.NormalizedStatus {
+			changed = true
 		}
 	}
 
-	return remove
+	return changed, firstErr
 }
 
-func (a *App) checkItemStatus(id int64, price int, cookiesStr string) (bool, error) {
-	if result, found := a.c.Get(fmt.Sprintf("check:%d:%d", id, price)); found {
+func (a *App) checkItemStatus(id int64, price int, cookiesStr string, forceRefresh bool) (bool, error) {
+	cacheKey := fmt.Sprintf("check:%d:%d", id, price)
+	if !forceRefresh {
+		if result, found := a.c.Get(cacheKey); found {
+			return result.(bool), nil
+		}
+	} else {
+		a.c.Delete(cacheKey)
+	}
+
+	if result, found := a.c.Get(cacheKey); found {
 		return result.(bool), nil
 	}
 	client, err := bilihttp.NewBiliClient()
@@ -136,7 +218,18 @@ func (a *App) checkItemStatus(id int64, price int, cookiesStr string) (bool, err
 		return false, err
 	}
 	canBuy := resp.Code != 60000002
-	a.c.Set(fmt.Sprintf("check:%d:%d", id, price), canBuy, cache.DefaultExpiration)
-	time.Sleep(1 * time.Second)
+	a.c.Set(cacheKey, canBuy, cache.DefaultExpiration)
+	time.Sleep(300 * time.Millisecond)
 	return canBuy, nil
+}
+
+func calcTotalPages(total, pageSize int) int {
+	if total <= 0 {
+		return 1
+	}
+	return (total + pageSize - 1) / pageSize
+}
+
+func buildItemLink(c2cItemsID int64) string {
+	return fmt.Sprintf("https://mall.bilibili.com/neul-next/index.html?page=magic-market_detail&noTitleBar=1&itemsId=%d", c2cItemsID)
 }

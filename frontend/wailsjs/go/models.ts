@@ -1,38 +1,109 @@
 export namespace app {
 	
-	export class C2CItemVO {
+	export class C2CItemDetailVO {
 	    c2cItemsId: number;
-	    c2cItemsName: string;
-	    totalItemsCount: number;
+	    skuId: number;
 	    price: number;
 	    showPrice: string;
+	    sellerName: string;
+	    sellerUID: string;
+	    publishTime: number;
+	    status: string;
+	    link: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new C2CItemVO(source);
+	        return new C2CItemDetailVO(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.c2cItemsId = source["c2cItemsId"];
-	        this.c2cItemsName = source["c2cItemsName"];
-	        this.totalItemsCount = source["totalItemsCount"];
+	        this.skuId = source["skuId"];
 	        this.price = source["price"];
 	        this.showPrice = source["showPrice"];
+	        this.sellerName = source["sellerName"];
+	        this.sellerUID = source["sellerUID"];
+	        this.publishTime = source["publishTime"];
+	        this.status = source["status"];
+	        this.link = source["link"];
 	    }
 	}
-	export class C2CItemListVO {
-	    items: C2CItemVO[];
+	export class C2CItemDetailListVO {
+	    skuId: number;
+	    c2cItemsName: string;
+	    detailImg: string;
+	    items: C2CItemDetailVO[];
 	    total: number;
 	    totalPages: number;
 	    currentPage: number;
 	
 	    static createFrom(source: any = {}) {
-	        return new C2CItemListVO(source);
+	        return new C2CItemDetailListVO(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.items = this.convertValues(source["items"], C2CItemVO);
+	        this.skuId = source["skuId"];
+	        this.c2cItemsName = source["c2cItemsName"];
+	        this.detailImg = source["detailImg"];
+	        this.items = this.convertValues(source["items"], C2CItemDetailVO);
+	        this.total = source["total"];
+	        this.totalPages = source["totalPages"];
+	        this.currentPage = source["currentPage"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class C2CItemGroupVO {
+	    skuId: number;
+	    c2cItemsName: string;
+	    detailImg: string;
+	    itemCount: number;
+	    latestPublishTime: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new C2CItemGroupVO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.skuId = source["skuId"];
+	        this.c2cItemsName = source["c2cItemsName"];
+	        this.detailImg = source["detailImg"];
+	        this.itemCount = source["itemCount"];
+	        this.latestPublishTime = source["latestPublishTime"];
+	    }
+	}
+	export class C2CItemGroupListVO {
+	    items: C2CItemGroupVO[];
+	    total: number;
+	    totalPages: number;
+	    currentPage: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new C2CItemGroupListVO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], C2CItemGroupVO);
 	        this.total = source["total"];
 	        this.totalPages = source["totalPages"];
 	        this.currentPage = source["currentPage"];

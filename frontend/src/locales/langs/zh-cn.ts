@@ -160,6 +160,7 @@ const local: App.I18n.Schema = {
     500: '服务器错误',
     'iframe-page': '外链页面',
     home: '数据库',
+    'home-detail': '商品详情',
     scrapy: '爬取数据'
   },
   page: {

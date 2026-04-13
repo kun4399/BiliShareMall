@@ -49,6 +49,19 @@ export const generatedRoutes: GeneratedRoute[] = [
       icon: 'mdi:monitor-dashboard',
       order: 1,
       keepAlive: true
+    },
+    props: true
+  },
+  {
+    name: 'home-detail',
+    path: '/home/:skuId',
+    component: 'layout.base$view.home-detail',
+    props: true,
+    meta: {
+      title: '商品详情',
+      i18nKey: 'route.home-detail',
+      hideInMenu: true,
+      activeMenu: 'home'
     }
   },
   {

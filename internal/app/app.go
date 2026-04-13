@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const DatabaseVersion = 3
+const DatabaseVersion = 4
 
 // App struct
 type App struct {

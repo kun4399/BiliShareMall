@@ -26,16 +26,16 @@ export function GetNowRunTaskId() {
   return window['go']['app']['App']['GetNowRunTaskId']();
 }
 
-export function ListC2CItem(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
-  return window['go']['app']['App']['ListC2CItem'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+export function ListC2CItem(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['app']['App']['ListC2CItem'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+}
+
+export function ListC2CItemDetailBySku(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['app']['App']['ListC2CItemDetailBySku'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function ReadAllScrapyItems() {
   return window['go']['app']['App']['ReadAllScrapyItems']();
-}
-
-export function RemoveErrorItem(arg1, arg2) {
-  return window['go']['app']['App']['RemoveErrorItem'](arg1, arg2);
 }
 
 export function StartTask(arg1, arg2) {

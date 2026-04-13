@@ -160,6 +160,7 @@ const local: App.I18n.Schema = {
     500: 'Server Error',
     'iframe-page': 'Iframe',
     home: 'Home',
+    'home-detail': 'Detail',
     scrapy: 'scrapy'
   },
   page: {
