@@ -1,5 +1,4 @@
 /* eslint-disable class-methods-use-this, max-params, @typescript-eslint/no-invalid-void-type */
-import { EventsOn } from '~/wailsjs/runtime/runtime';
 import {
   CreateScrapyItem as WailsCreateScrapyItem,
   DeleteScrapyItem as WailsDeleteScrapyItem,
@@ -18,7 +17,7 @@ import {
   VerifyLogin as WailsVerifyLogin
 } from '~/wailsjs/go/app/App';
 import type { auth, catalog, dao, scrapy } from '~/wailsjs/go/models';
-import { resolveAppRuntime } from './runtime';
+import { onWailsEvent, resolveAppRuntime } from './runtime';
 
 type EventCallback = (payload: unknown) => void;
 
@@ -135,7 +134,7 @@ class WailsGateway implements AppGateway {
   }
 
   OnEvent(eventName: string, callback: EventCallback) {
-    return EventsOn(eventName, callback);
+    return onWailsEvent(eventName, callback);
   }
 }
 
