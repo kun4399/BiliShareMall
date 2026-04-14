@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { useScrapyTasks } from '@/features/scrapy/useScrapyTasks';
-import { Play, StopSharp } from '@vicons/ionicons5';
+import ScrapyTaskCard from './modules/scrapy-task-card.vue';
 
 const {
-  finishTimeHash,
-  failedTimeHash,
-  retryStateHash,
   scrapyList,
   runningTaskIds,
   runningCount,
@@ -19,23 +16,22 @@ const {
   discountFilterOptions,
   sourceNotice,
   isTaskRunning,
+  getTaskUiState,
   getOptionLabel,
-  displayLabel,
-  getCompletedRoundCount,
   addScrapy,
   handleClose,
   handleRun,
-  handldStop
+  handleStop
 } = useScrapyTasks();
 </script>
 
 <template>
-  <NSpace vertical size="large">
+  <NSpace vertical size="medium">
     <NAlert v-if="sourceNotice" title="筛选配置提醒" type="warning">
       {{ sourceNotice }}
     </NAlert>
 
-    <NCard class="card-wrapper" title="添加爬取任务">
+    <NCard class="card-wrapper" title="添加爬取任务" size="small">
       <template #header-extra>
         <NButton @click="addScrapy">
           <template #icon>
@@ -45,136 +41,89 @@ const {
         </NButton>
       </template>
 
-      <NSpace vertical size="large">
-        <NCollapse default-expanded-names="category">
-          <NCollapseItem title="类型" name="category">
-            <NSelect
-              v-model:value="selectedProduct"
-              :options="productOptions"
-              label-field="label"
-              value-field="value"
-              placeholder="选择类型"
-            />
-            <template #header-extra>{{ getOptionLabel(productOptions, selectedProduct) }}</template>
-          </NCollapseItem>
+      <NGrid cols="1 s:2 l:4" responsive="screen" :x-gap="12" :y-gap="8">
+        <NFormItemGi label="类型">
+          <NSelect
+            v-model:value="selectedProduct"
+            :options="productOptions"
+            label-field="label"
+            value-field="value"
+            placeholder="选择类型"
+          />
+        </NFormItemGi>
 
-          <NCollapseItem title="顺序" name="order">
-            <NSelect
-              v-model:value="selectedOrder"
-              :options="orderOptions"
-              label-field="label"
-              value-field="value"
-              placeholder="选择顺序"
-            />
-            <template #header-extra>{{ getOptionLabel(orderOptions, selectedOrder) }}</template>
-          </NCollapseItem>
+        <NFormItemGi label="顺序">
+          <NSelect
+            v-model:value="selectedOrder"
+            :options="orderOptions"
+            label-field="label"
+            value-field="value"
+            placeholder="选择顺序"
+          />
+        </NFormItemGi>
 
-          <NCollapseItem title="价格筛选" name="price">
-            <NSelect
-              v-model:value="selectedPriceFilter"
-              :options="priceFilterOptions"
-              label-field="label"
-              value-field="value"
-              placeholder="选择价格筛选"
-            />
-            <template #header-extra>{{ getOptionLabel(priceFilterOptions, selectedPriceFilter) }}</template>
-          </NCollapseItem>
+        <NFormItemGi label="价格筛选">
+          <NSelect
+            v-model:value="selectedPriceFilter"
+            :options="priceFilterOptions"
+            label-field="label"
+            value-field="value"
+            placeholder="选择价格筛选"
+          />
+        </NFormItemGi>
 
-          <NCollapseItem title="折扣筛选" name="discount">
-            <NSelect
-              v-model:value="selectedDiscountFilter"
-              :options="discountFilterOptions"
-              label-field="label"
-              value-field="value"
-              placeholder="选择折扣筛选"
-            />
-            <template #header-extra>{{ getOptionLabel(discountFilterOptions, selectedDiscountFilter) }}</template>
-          </NCollapseItem>
-        </NCollapse>
-      </NSpace>
+        <NFormItemGi label="折扣筛选">
+          <NSelect
+            v-model:value="selectedDiscountFilter"
+            :options="discountFilterOptions"
+            label-field="label"
+            value-field="value"
+            placeholder="选择折扣筛选"
+          />
+        </NFormItemGi>
+      </NGrid>
+
+      <div class="task-form-summary">
+        <NTag size="small" round>{{ getOptionLabel(productOptions, selectedProduct) }}</NTag>
+        <NTag size="small" round>{{ getOptionLabel(orderOptions, selectedOrder) }}</NTag>
+        <NTag size="small" round>{{ getOptionLabel(priceFilterOptions, selectedPriceFilter) }}</NTag>
+        <NTag size="small" round>{{ getOptionLabel(discountFilterOptions, selectedDiscountFilter) }}</NTag>
+      </div>
     </NCard>
 
-    <NCard class="running-card" title="运行中的任务">
-      <NSpace align="center">
-        <NTag type="success" size="large">运行中 {{ runningCount }} 个</NTag>
+    <NCard class="running-card" title="运行中的任务" size="small">
+      <NSpace align="center" size="small">
+        <NTag type="success" size="medium">运行中 {{ runningCount }} 个</NTag>
         <NTag v-for="id in runningTaskIds" :key="id" type="info" round>
           任务 #{{ id }}
         </NTag>
       </NSpace>
     </NCard>
 
-    <NCard
+    <ScrapyTaskCard
       v-for="(scrapy, idx) in scrapyList"
       :key="scrapy.id"
-      :title="`${scrapy.productName} ${getOptionLabel(orderOptions, scrapy.order)}`"
-      closable
-      @close="() => handleClose(idx)"
-    >
-      <NSpace vertical size="large">
-        <NAlert v-if="isTaskRunning(scrapy.id)" title="任务状态" type="success">
-          正在运行中
-        </NAlert>
-        <NAlert v-if="retryStateHash[scrapy.id]" title="重试中" type="warning">
-          {{ retryStateHash[scrapy.id]?.seconds }} 秒后重试，原因：{{ retryStateHash[scrapy.id]?.reason }}
-        </NAlert>
-        <NAlert v-if="finishTimeHash[scrapy.id]" title="本轮完成" type="success">
-          时间：{{ finishTimeHash[scrapy.id] }}
-        </NAlert>
-        <NAlert v-if="failedTimeHash[scrapy.id]" title="执行失败" type="error">
-          错误时间：{{ failedTimeHash[scrapy.id] }}
-        </NAlert>
-        <NSpace justify="space-around" size="large">
-          <NStatistic label="折扣" :value="displayLabel(scrapy.discountFilterLabel)" />
-          <NStatistic label="价格" :value="displayLabel(scrapy.priceFilterLabel)" />
-          <NStatistic label="爬取次数" :value="scrapy.nums" />
-          <NStatistic label="完成循环次数" :value="getCompletedRoundCount(scrapy)" />
-          <NButton
-            v-if="!isTaskRunning(scrapy.id)"
-            class="custom-button"
-            strong
-            ghost
-            circle
-            round
-            size="large"
-            @click="() => handleRun(idx)"
-          >
-            <template #icon>
-              <NIcon><Play /></NIcon>
-            </template>
-          </NButton>
-          <NButton
-            v-else
-            class="custom-button"
-            strong
-            ghost
-            circle
-            round
-            size="large"
-            @click="() => handldStop(scrapy.id)"
-          >
-            <template #icon>
-              <NIcon><StopSharp /></NIcon>
-            </template>
-          </NButton>
-        </NSpace>
-      </NSpace>
-
-      <template #header-extra>
-        <NFlex>
-          <NTime class="custom-time" :time="new Date(scrapy.createTime)" />
-        </NFlex>
-      </template>
-    </NCard>
+      :task="scrapy"
+      :order-label="getOptionLabel(orderOptions, scrapy.order)"
+      :task-state="getTaskUiState(scrapy.id)"
+      :is-running="isTaskRunning(scrapy.id)"
+      @close="handleClose(idx)"
+      @run="handleRun(idx)"
+      @stop="handleStop(scrapy.id)"
+    />
   </NSpace>
 </template>
 
 <style lang="css">
-.custom-button {
-  margin-top: 12px;
+.card-wrapper :is(.n-card__content, .n-card-header) {
+  padding-bottom: 12px;
 }
 
-.custom-time {
-  color: gray;
+.task-form-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .running-card {

@@ -13,20 +13,13 @@ import {
   StartTask
 } from '@/gateway';
 import { getToken } from '@/store/modules/auth/shared';
-
-interface TimeHash {
-  [key: number]: Date | undefined;
-}
-
-interface RetryState {
-  seconds: number;
-  reason: string;
-  updatedAt: Date;
-}
-
-interface RetryHash {
-  [key: number]: RetryState | undefined;
-}
+import {
+  applyTaskUiStateTransition,
+  createTaskUiState,
+  createTaskUiStateMap,
+  type TaskUiEvent,
+  type TaskUiState
+} from './task-state';
 
 interface ScrapyRetryEvent {
   taskId: number;
@@ -43,9 +36,7 @@ export function useScrapyTasks() {
   const message = useMessage();
   const loadingBar = useLoadingBar();
 
-  const finishTimeHash = ref<TimeHash>({});
-  const failedTimeHash = ref<TimeHash>({});
-  const retryStateHash = ref<RetryHash>({});
+  const taskStateMap = ref<Record<number, TaskUiState>>({});
   const scrapyList = ref<dao.ScrapyItem[]>([]);
   const runningTaskIds = ref<number[]>([]);
   const runtimeConfig = ref<scrapy.MarketRuntimeConfig | null>(null);
@@ -91,6 +82,26 @@ export function useScrapyTasks() {
     runningTaskIds.value = runningTaskIds.value.filter(id => id !== taskID);
   }
 
+  function updateTaskState(taskID: number, event: TaskUiEvent) {
+    taskStateMap.value = {
+      ...taskStateMap.value,
+      [taskID]: applyTaskUiStateTransition(taskStateMap.value[taskID], event)
+    };
+  }
+
+  function clearTaskState(taskID: number) {
+    if (!(taskID in taskStateMap.value)) {
+      return;
+    }
+    const next = { ...taskStateMap.value };
+    delete next[taskID];
+    taskStateMap.value = next;
+  }
+
+  function getTaskUiState(taskID: number) {
+    return taskStateMap.value[taskID] || createTaskUiState();
+  }
+
   async function loadRuntimeConfig() {
     const config = await GetMarketRuntimeConfig(getToken());
     runtimeConfig.value = config;
@@ -123,73 +134,72 @@ export function useScrapyTasks() {
     return result.slice();
   }
 
-  function addScrapy() {
+  async function addScrapy() {
     const item = createScrapyPayload();
-    CreateScrapyItem(item).then(id => {
+    try {
+      const id = await CreateScrapyItem(item);
       if (id === -1) {
         message.error('添加失败');
         return;
       }
       item.id = id;
-      getAllItems().then(value => {
-        scrapyList.value = value.slice();
-        message.success('添加成功');
-      });
-    });
+      scrapyList.value = await getAllItems();
+      message.success('添加成功');
+    } catch (err: any) {
+      message.error(err?.message || '添加失败');
+    }
   }
 
-  function handleClose(idx: number) {
+  async function handleClose(idx: number) {
     const taskID = scrapyList.value[idx].id;
     if (isTaskRunning(taskID)) {
       message.warning('请先停止该任务');
       return;
     }
     loadingBar.start();
-    DeleteScrapyItem(taskID)
-      .then(() => {
-        getAllItems().then(value => {
-          scrapyList.value = value.slice();
-          loadingBar.finish();
-          message.success('删除成功');
-        });
-      })
-      .catch(err => {
-        loadingBar.error();
-        message.error(err?.message || '删除失败');
-      });
+    try {
+      await DeleteScrapyItem(taskID);
+      scrapyList.value = await getAllItems();
+      clearTaskState(taskID);
+      loadingBar.finish();
+      message.success('删除成功');
+    } catch (err: any) {
+      loadingBar.error();
+      message.error(err?.message || '删除失败');
+    }
   }
 
-  function handleRun(idx: number) {
+  async function handleRun(idx: number) {
     const taskID = scrapyList.value[idx].id;
     if (isTaskRunning(taskID)) {
       message.warning('该任务已在运行');
       return;
     }
     loadingBar.start();
-    StartTask(taskID, getToken())
-      .then(() => {
-        addRunningTask(taskID);
-        loadingBar.finish();
-        message.success('启动成功');
-      })
-      .catch(err => {
-        loadingBar.error();
-        message.error(err?.message || '启动失败');
-      });
+    try {
+      await StartTask(taskID, getToken());
+      addRunningTask(taskID);
+      updateTaskState(taskID, { type: 'start' });
+      loadingBar.finish();
+      message.success('启动成功');
+    } catch (err: any) {
+      loadingBar.error();
+      message.error(err?.message || '启动失败');
+    }
   }
 
-  function handldStop(id: number) {
+  async function handleStop(taskID: number) {
     loadingBar.start();
-    DoneTask(id)
-      .then(() => {
-        removeRunningTask(id);
-        loadingBar.finish();
-        message.success('已停止');
-      })
-      .catch(err => {
-        loadingBar.error();
-        message.error(err?.message || '停止失败');
-      });
+    try {
+      await DoneTask(taskID);
+      removeRunningTask(taskID);
+      updateTaskState(taskID, { type: 'stop' });
+      loadingBar.finish();
+      message.success('已停止');
+    } catch (err: any) {
+      loadingBar.error();
+      message.error(err?.message || '停止失败');
+    }
   }
 
   function parseTaskID(payload: unknown): number {
@@ -208,7 +218,7 @@ export function useScrapyTasks() {
         const item = dao.ScrapyItem.createFrom(payload);
         const idx = scrapyList.value.findIndex(it => it.id === item.id);
         if (idx >= 0) {
-          scrapyList.value[idx] = item;
+          scrapyList.value = scrapyList.value.map(it => (it.id === item.id ? item : it));
         }
       })
     );
@@ -218,8 +228,8 @@ export function useScrapyTasks() {
         message.error('任务失败，请稍后重试');
         const id = parseTaskID(payload);
         if (!id) return;
-        failedTimeHash.value[id] = new Date();
         removeRunningTask(id);
+        updateTaskState(id, { type: 'failed' });
       })
     );
 
@@ -228,7 +238,10 @@ export function useScrapyTasks() {
         const event = payload as ScrapyRoundEvent;
         const id = parseTaskID(event);
         if (!id) return;
-        finishTimeHash.value[id] = new Date(event.completedAt || Date.now());
+        updateTaskState(id, {
+          type: 'completed',
+          at: Number(event.completedAt || Date.now())
+        });
       })
     );
 
@@ -236,7 +249,7 @@ export function useScrapyTasks() {
       OnAppEvent('scrapy_finished', payload => {
         const id = parseTaskID(payload);
         if (!id) return;
-        finishTimeHash.value[id] = new Date();
+        updateTaskState(id, { type: 'completed' });
       })
     );
 
@@ -245,11 +258,12 @@ export function useScrapyTasks() {
         const event = payload as ScrapyRetryEvent;
         const id = parseTaskID(event);
         if (!id) return;
-        retryStateHash.value[id] = {
+        addRunningTask(id);
+        updateTaskState(id, {
+          type: 'retry_wait',
           seconds: Number(event.seconds || 10),
-          reason: event.reason || '请求失败',
-          updatedAt: new Date()
-        };
+          reason: event.reason || '请求失败'
+        });
       })
     );
 
@@ -258,6 +272,7 @@ export function useScrapyTasks() {
         const id = parseTaskID(payload);
         if (id) {
           removeRunningTask(id);
+          updateTaskState(id, { type: 'failed' });
         }
         message.warning('当前爬取配置读取失败');
       })
@@ -270,6 +285,7 @@ export function useScrapyTasks() {
     await loadRuntimeConfig();
     scrapyList.value = await getAllItems();
     runningTaskIds.value = await GetRunningTaskIds();
+    taskStateMap.value = createTaskUiStateMap(runningTaskIds.value);
     loadingBar.finish();
   });
 
@@ -283,9 +299,7 @@ export function useScrapyTasks() {
   });
 
   return {
-    finishTimeHash,
-    failedTimeHash,
-    retryStateHash,
+    taskStateMap,
     scrapyList,
     runningTaskIds,
     runningCount,
@@ -299,12 +313,13 @@ export function useScrapyTasks() {
     discountFilterOptions,
     sourceNotice,
     isTaskRunning,
+    getTaskUiState,
     getOptionLabel,
     displayLabel,
     getCompletedRoundCount,
     addScrapy,
     handleClose,
     handleRun,
-    handldStop
+    handleStop
   };
 }

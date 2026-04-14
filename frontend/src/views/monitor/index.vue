@@ -5,19 +5,14 @@ import { useLoadingBar, useMessage } from 'naive-ui';
 import { scrapy } from '~/wailsjs/go/models';
 import { GetC2CItemNameBySku, GetMonitorConfig, ListMonitorRuleHits, OnAppEvent, SaveMonitorConfig } from '@/gateway';
 import { hydrateMissingMonitorRuleSkuNames, seedMonitorRuleSkuNameCache } from '@/features/monitor/sku-name';
-
-interface MonitorRuleForm {
-  key: number;
-  id: number;
-  skuId: number | null;
-  minPriceYuan: number | null;
-  maxPriceYuan: number | null;
-  enabled: boolean;
-  skuName: string;
-  skuNameLoading: boolean;
-  skuLookupSeq: number;
-  lastLookupSkuId: number;
-}
+import {
+  buildMonitorConfigPayload,
+  createRuleForm,
+  normalizeMonitorHit,
+  toYuan,
+  type MonitorRuleForm
+} from '@/features/monitor/rule-editor';
+import MonitorRuleCard from './modules/monitor-rule-card.vue';
 
 type RuleHitsMap = Record<number, scrapy.MonitorHitItem[]>;
 
@@ -36,32 +31,10 @@ const unlisteners: Array<() => void> = [];
 let ruleKeySeed = 1;
 let hasActivatedOnce = false;
 
-function createRuleForm(partial?: Partial<MonitorRuleForm>): MonitorRuleForm {
-  const initialSkuId = partial?.skuId ?? null;
-  const initialSkuName = partial?.skuName ?? '';
-  return {
-    key: ruleKeySeed++,
-    id: partial?.id ?? 0,
-    skuId: initialSkuId,
-    minPriceYuan: partial?.minPriceYuan ?? null,
-    maxPriceYuan: partial?.maxPriceYuan ?? null,
-    enabled: partial?.enabled ?? true,
-    skuName: initialSkuName,
-    skuNameLoading: false,
-    skuLookupSeq: 0,
-    lastLookupSkuId: initialSkuId && initialSkuName ? Number(initialSkuId) : 0
-  };
-}
-
-function normalizeHit(payload: unknown) {
-  const hit = scrapy.MonitorHitItem.createFrom(payload);
-  if (!hit.itemName) {
-    hit.itemName = hit.c2cItemsId ? `商品 #${hit.c2cItemsId}` : '未知商品';
-  }
-  if (!hit.showPrice && Number.isFinite(hit.price)) {
-    hit.showPrice = toYuan(Number(hit.price)).toFixed(2);
-  }
-  return hit;
+function nextRuleKey() {
+  const current = ruleKeySeed;
+  ruleKeySeed += 1;
+  return current;
 }
 
 function upsertRuleHit(hit: scrapy.MonitorHitItem) {
@@ -93,26 +66,6 @@ function getRuleHits(rule: MonitorRuleForm) {
   return ruleHitsMap.value[rule.id] || [];
 }
 
-function formatHitTime(timestamp: number) {
-  const value = Number(timestamp || 0);
-  if (value <= 0) {
-    return '-';
-  }
-  return new Date(value).toLocaleString();
-}
-
-function formatHitPrice(hit: scrapy.MonitorHitItem) {
-  const showPrice = (hit.showPrice || '').trim();
-  if (showPrice) {
-    return showPrice;
-  }
-  const price = Number(hit.price || 0);
-  if (price < 0) {
-    return '-';
-  }
-  return toYuan(price).toFixed(2);
-}
-
 async function copyHitLink(link: string) {
   const normalized = (link || '').trim();
   if (!normalized) {
@@ -131,12 +84,8 @@ async function copyHitLink(link: string) {
   }
 }
 
-function hitKey(hit: scrapy.MonitorHitItem, index: number) {
-  return `${hit.ruleId}-${hit.c2cItemsId}-${hit.status}-${hit.occurredAt}-${index}`;
-}
-
 function addRule() {
-  rules.value.push(createRuleForm());
+  rules.value.push(createRuleForm(nextRuleKey()));
 }
 
 function clearSkuLookupTimer(key: number) {
@@ -201,19 +150,6 @@ function queueLookupSkuName(rule: MonitorRuleForm) {
   skuLookupTimerMap.set(rule.key, timer);
 }
 
-function getSkuNameDisplayText(rule: MonitorRuleForm) {
-  if (rule.skuNameLoading) {
-    return '查询中...';
-  }
-  if (!rule.skuId || rule.skuId <= 0) {
-    return '输入 SKU 后自动显示';
-  }
-  if (rule.skuName) {
-    return rule.skuName;
-  }
-  return '未找到商品名（可能尚未入库）';
-}
-
 async function lookupSkuNameFast(skuId: number): Promise<string> {
   const inFlight = skuLookupPromiseMap.get(skuId);
   if (inFlight) {
@@ -246,14 +182,6 @@ function removeRule(index: number) {
   rules.value.splice(index, 1);
 }
 
-function toYuan(cents: number) {
-  return Number((cents / 100).toFixed(2));
-}
-
-function toCents(yuan: number) {
-  return Math.round(yuan * 100);
-}
-
 function validateRules(items: MonitorRuleForm[]) {
   for (let i = 0; i < items.length; i += 1) {
     const rule = items[i];
@@ -281,7 +209,7 @@ async function loadRuleHits() {
     if (ruleId <= 0) {
       return;
     }
-    next[ruleId] = (group.hits || []).map(hit => normalizeHit(hit));
+    next[ruleId] = (group.hits || []).map(hit => normalizeMonitorHit(hit));
   });
   ruleHitsMap.value = next;
 }
@@ -292,13 +220,14 @@ async function loadConfig() {
     const config = await GetMonitorConfig();
     webhook.value = config.webhook || '';
     const loadedRules = (config.rules || []).map(rule =>
-      createRuleForm({
+      createRuleForm(nextRuleKey(), {
         id: rule.id || 0,
         skuId: rule.skuId || null,
         skuName: rule.skuName || '',
         minPriceYuan: toYuan(rule.minPrice || 0),
         maxPriceYuan: toYuan(rule.maxPrice || 0),
-        enabled: rule.enabled ?? true
+        enabled: rule.enabled ?? true,
+        remark: rule.remark || ''
       })
     );
     seedMonitorRuleSkuNameCache(loadedRules, skuNameCache);
@@ -325,18 +254,7 @@ async function saveConfig() {
     return;
   }
 
-  const payload = scrapy.MonitorConfig.createFrom({
-    webhook: cleanedWebhook,
-    rules: rules.value.map(rule =>
-      scrapy.MonitorRule.createFrom({
-        id: rule.id,
-        skuId: Number(rule.skuId),
-        minPrice: toCents(Number(rule.minPriceYuan)),
-        maxPrice: toCents(Number(rule.maxPriceYuan)),
-        enabled: rule.enabled
-      })
-    )
-  });
+  const payload = buildMonitorConfigPayload(cleanedWebhook, rules.value);
 
   loadingBar.start();
   try {
@@ -354,7 +272,7 @@ async function saveConfig() {
 onMounted(() => {
   unlisteners.push(
     OnAppEvent('monitor_alert_result', payload => {
-      upsertRuleHit(normalizeHit(payload));
+      upsertRuleHit(normalizeMonitorHit(payload));
     })
   );
   void loadConfig();
@@ -384,7 +302,7 @@ onUnmounted(() => {
 
 <template>
   <NSpace vertical size="medium">
-    <NCard title="钉钉 Webhook">
+    <NCard title="钉钉 Webhook" size="small">
       <NSpace vertical size="small">
         <NInput
           v-model:value="webhook"
@@ -395,7 +313,7 @@ onUnmounted(() => {
       </NSpace>
     </NCard>
 
-    <NCard title="监控规则">
+    <NCard title="监控规则" size="small">
       <template #header-extra>
         <NSpace>
           <NButton @click="addRule">
@@ -410,55 +328,18 @@ onUnmounted(() => {
 
       <NEmpty v-if="rules.length === 0" description="暂无规则，点击“新增规则”开始配置" />
       <NSpace v-else vertical size="small">
-        <NCard v-for="(rule, idx) in rules" :key="rule.key" size="small" :title="`规则 #${idx + 1}`">
-          <template #header-extra>
-            <NSpace align="center">
-              <NText depth="3">启用</NText>
-              <NSwitch v-model:value="rule.enabled" />
-              <NButton quaternary type="error" @click="removeRule(idx)">删除</NButton>
-            </NSpace>
-          </template>
-          <NGrid :cols="4" :x-gap="8" :y-gap="8">
-            <NFormItemGi label="SKU ID">
-              <NInputNumber
-                v-model:value="rule.skuId"
-                :min="1"
-                :precision="0"
-                placeholder="如 123456"
-                @update:value="() => queueLookupSkuName(rule)"
-                @blur="() => lookupSkuName(rule)"
-              />
-            </NFormItemGi>
-            <NFormItemGi label="最低价（元）">
-              <NInputNumber v-model:value="rule.minPriceYuan" :min="0" :precision="2" placeholder="如 99.00" />
-            </NFormItemGi>
-            <NFormItemGi label="最高价（元）">
-              <NInputNumber v-model:value="rule.maxPriceYuan" :min="0" :precision="2" placeholder="如 199.00" />
-            </NFormItemGi>
-            <NFormItemGi label="商品名">
-              <NText :depth="rule.skuName ? 2 : 3">{{ getSkuNameDisplayText(rule) }}</NText>
-            </NFormItemGi>
-          </NGrid>
-
-          <NDivider />
-
-          <NSpace vertical size="small">
-            <NText depth="3">命中记录（最近 {{ hitLimitPerRule }} 条）</NText>
-            <NEmpty v-if="rule.id <= 0" size="small" description="保存规则后开始记录命中结果" />
-            <NEmpty v-else-if="getRuleHits(rule).length === 0" size="small" description="暂无命中记录" />
-            <NList v-else bordered size="small">
-              <NListItem v-for="(hit, hitIdx) in getRuleHits(rule)" :key="hitKey(hit, hitIdx)">
-                <NSpace align="center" :size="6" :wrap="false" style="width: 100%">
-                  <NText depth="3">{{ formatHitPrice(hit) }} 元</NText>
-                  <NText depth="3">｜</NText>
-                  <NText depth="3">{{ formatHitTime(hit.occurredAt) }}</NText>
-                  <NText depth="3">｜</NText>
-                  <NButton text type="primary" @click="() => copyHitLink(hit.itemLink)">链接</NButton>
-                </NSpace>
-              </NListItem>
-            </NList>
-          </NSpace>
-        </NCard>
+        <MonitorRuleCard
+          v-for="(rule, idx) in rules"
+          :key="rule.key"
+          :rule="rule"
+          :index="idx"
+          :hits="getRuleHits(rule)"
+          :hit-limit-per-rule="hitLimitPerRule"
+          @remove="removeRule(idx)"
+          @queue-lookup="queueLookupSkuName(rule)"
+          @lookup-now="lookupSkuName(rule)"
+          @copy-link="copyHitLink"
+        />
       </NSpace>
     </NCard>
   </NSpace>
