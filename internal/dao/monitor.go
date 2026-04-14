@@ -279,7 +279,6 @@ func (d *Database) EnsureMonitorRuleRemarkColumn() error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 
 	hasRemark := false
 	for rows.Next() {
@@ -298,6 +297,10 @@ func (d *Database) EnsureMonitorRuleRemarkColumn() error {
 		}
 	}
 	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
 		return err
 	}
 	if hasRemark {

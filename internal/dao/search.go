@@ -122,7 +122,6 @@ func (d *Database) EnsureC2CItemReferencePriceColumn() error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 
 	hasReferencePrice := false
 	for rows.Next() {
@@ -141,6 +140,10 @@ func (d *Database) EnsureC2CItemReferencePriceColumn() error {
 		}
 	}
 	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
 		return err
 	}
 
