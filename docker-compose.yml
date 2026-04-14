@@ -6,6 +6,6 @@ services:
     env_file:
       - .env
     ports:
-      - "3754:3754"
+      - "3761:3761"
     volumes:
       - ./data:/data

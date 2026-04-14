@@ -1,6 +1,7 @@
 import type { AxiosResponse } from 'axios';
 import { BACKEND_ERROR_CODE, createFlatRequest, createRequest } from '@sa/axios';
 import { useAuthStore } from '@/store/modules/auth';
+import { getToken } from '@/store/modules/auth/shared';
 import { $t } from '@/locales';
 import { localStg } from '@/utils/storage';
 import { getServiceBaseURL } from '@/utils/service';
@@ -132,7 +133,7 @@ export const demoRequest = createRequest<App.Service.DemoResponse>(
       const { headers } = config;
 
       // set token
-      const token = localStg.get('cookies');
+      const token = getToken();
       const Authorization = token ? `Bearer ${token}` : null;
       Object.assign(headers, { Authorization });
 

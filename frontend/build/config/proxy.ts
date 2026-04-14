@@ -15,7 +15,7 @@ export function createViteProxy(env: Env.ImportMeta, enable: boolean) {
   const { baseURL, proxyPattern, other } = createServiceConfig(env);
 
   const proxy: Record<string, ProxyOptions> = createProxyItem({ baseURL, proxyPattern });
-  const apiTarget = /^https?:\/\//.test(baseURL) ? baseURL : 'http://127.0.0.1:3754';
+  const apiTarget = /^https?:\/\//.test(baseURL) ? baseURL : 'http://127.0.0.1:3761';
 
   proxy['/api'] = {
     target: apiTarget,

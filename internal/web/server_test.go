@@ -78,7 +78,14 @@ func (s *stubAPI) GetMarketRuntimeConfig(cookieStr string) appcore.MarketRuntime
 	s.lastRuntimeConfigCookie = cookieStr
 	return appcore.MarketRuntimeConfig{}
 }
-func (s *stubAPI) GetMonitorConfig() appcore.MonitorConfig { return appcore.MonitorConfig{} }
+func (s *stubAPI) GetMonitorConfig() appcore.MonitorConfig {
+	return appcore.MonitorConfig{
+		Webhook: "https://example.com/webhook",
+		Rules: []appcore.MonitorRule{
+			{ID: 1, SkuID: 1001, SkuName: "测试商品", MinPrice: 100, MaxPrice: 200, Enabled: true},
+		},
+	}
+}
 func (s *stubAPI) SaveMonitorConfig(config appcore.MonitorConfig) error {
 	return nil
 }
@@ -272,6 +279,21 @@ func TestCatalogSkuNameEndpoint(t *testing.T) {
 	expected := fmt.Sprintf(`"name":"%s"`, "测试商品")
 	if !strings.Contains(recorder.Body.String(), expected) {
 		t.Fatalf("expected response body to contain %s, got %s", expected, recorder.Body.String())
+	}
+}
+
+func TestMonitorConfigEndpointIncludesResolvedSkuName(t *testing.T) {
+	server := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/monitor/config", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), `"skuName":"测试商品"`) {
+		t.Fatalf("expected response body to contain skuName, got %s", recorder.Body.String())
 	}
 }
 

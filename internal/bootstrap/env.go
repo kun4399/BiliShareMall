@@ -13,7 +13,7 @@ import (
 
 const (
 	DefaultAppName  = "BiliShareMall"
-	DefaultHTTPAddr = ":3754"
+	DefaultHTTPAddr = ":3761"
 )
 
 type InitOptions struct {

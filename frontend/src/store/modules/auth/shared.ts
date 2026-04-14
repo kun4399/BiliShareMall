@@ -1,7 +1,11 @@
+import { resolveAppRuntime } from '@/gateway/runtime';
 import { localStg } from '@/utils/storage';
 
 /** Get token */
 export function getToken() {
+  if (resolveAppRuntime() === 'web') {
+    return '';
+  }
   return localStg.get('cookies') || '';
 }
 

@@ -34,6 +34,8 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
       return Boolean(token.value);
     }
 
+    token.value = '';
+
     if (!force && initialized.value) {
       return webLoggedIn.value;
     }
@@ -91,6 +93,8 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
 
   async function setCookies(cookies: string, redirect = true) {
     if (runtime === 'web') {
+      clearAuthStorage();
+      token.value = '';
       webLoggedIn.value = true;
       initialized.value = true;
     } else {

@@ -3,7 +3,7 @@ APP_NAME=BiliShareMall
 WEB_APP_NAME=BiliShareMallWeb
 GOCACHE_DIR?=$(CURDIR)/.cache/go-build
 GOMODCACHE_DIR?=$(CURDIR)/.cache/gomod
-WEB_ADDR?=:3754
+WEB_ADDR?=:3761
 
 .PHONY: run,run-web,dev-web,embed
 run:

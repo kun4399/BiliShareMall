@@ -1,7 +1,8 @@
 import { onMounted, onUnmounted, ref } from 'vue';
-import { GetLoginKeyAndUrl, VerifyLogin } from '@/gateway';
+import { GetLoginKeyAndUrl, GetSharedLoginSession, VerifyLogin } from '@/gateway';
 import { resolveAppRuntime } from '@/gateway/runtime';
 import { useAuthStore } from '@/store/modules/auth';
+import { waitForSharedLoginSession } from './shared-session';
 
 export function useBiliQrLogin() {
   const authStore = useAuthStore();
@@ -12,6 +13,7 @@ export function useBiliQrLogin() {
 
   let loginKey = '';
   let checkInterval: ReturnType<typeof setInterval> | null = null;
+  let polling = false;
 
   function clearCheckInterval() {
     if (checkInterval) {
@@ -21,6 +23,7 @@ export function useBiliQrLogin() {
   }
 
   async function initQrUrl() {
+    loading.value = true;
     return GetLoginKeyAndUrl().then(loginInfo => {
       loginUrl.value = loginInfo.login_url;
       loginKey = loginInfo.key;
@@ -34,13 +37,32 @@ export function useBiliQrLogin() {
     clearCheckInterval();
 
     checkInterval = setInterval(async () => {
-      VerifyLogin(loginKey).then(ret => {
+      if (polling) {
+        return;
+      }
+      polling = true;
+      try {
+        const ret = await VerifyLogin(loginKey);
+
         switch (ret.status) {
           case 'confirmed':
             if (ret.cookies !== '') {
-              statusText.value = '登录成功，正在进入应用';
-              authStore.setCookies(runtime === 'web' ? '' : ret.cookies);
-              clearCheckInterval();
+              try {
+                if (runtime === 'web') {
+                  statusText.value = '登录成功，正在同步共享登录态';
+                  const synced = await waitForSharedLoginSession(GetSharedLoginSession);
+                  if (!synced) {
+                    statusText.value = '登录已确认，但共享登录态尚未同步，正在重试';
+                    break;
+                  }
+                } else {
+                  statusText.value = '登录成功，正在进入应用';
+                }
+                await authStore.setCookies(ret.cookies);
+                clearCheckInterval();
+              } catch {
+                statusText.value = runtime === 'web' ? '登录已确认，但共享登录态同步失败，请稍后重试' : '登录状态获取失败';
+              }
             }
             break;
           case 'scanned':
@@ -52,7 +74,7 @@ export function useBiliQrLogin() {
           case 'expired':
             statusText.value = ret.message || '二维码已过期，正在刷新';
             clearCheckInterval();
-            initQrUrl();
+            await initQrUrl();
             break;
           case 'error':
             statusText.value = ret.message || '登录状态获取失败';
@@ -60,7 +82,11 @@ export function useBiliQrLogin() {
           default:
             break;
         }
-      });
+      } catch {
+        statusText.value = '登录状态获取失败';
+      } finally {
+        polling = false;
+      }
     }, 3000);
   }
 

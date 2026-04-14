@@ -4,6 +4,7 @@ import { onActivated, onMounted, onUnmounted, ref } from 'vue';
 import { useLoadingBar, useMessage } from 'naive-ui';
 import { scrapy } from '~/wailsjs/go/models';
 import { GetC2CItemNameBySku, GetMonitorConfig, ListMonitorRuleHits, OnAppEvent, SaveMonitorConfig } from '@/gateway';
+import { hydrateMissingMonitorRuleSkuNames, seedMonitorRuleSkuNameCache } from '@/features/monitor/sku-name';
 
 interface MonitorRuleForm {
   key: number;
@@ -300,6 +301,9 @@ async function loadConfig() {
         enabled: rule.enabled ?? true
       })
     );
+    seedMonitorRuleSkuNameCache(loadedRules, skuNameCache);
+    await hydrateMissingMonitorRuleSkuNames(loadedRules, lookupSkuNameFast);
+    seedMonitorRuleSkuNameCache(loadedRules, skuNameCache);
     rules.value = loadedRules;
     await loadRuleHits();
   } catch (err: any) {

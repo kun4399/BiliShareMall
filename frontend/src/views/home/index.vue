@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Search } from '@vicons/ionicons5';
-import { normalizeImage } from '@/features/catalog/shared';
+import { normalizeImage, resolveReferencePriceLabel } from '@/features/catalog/shared';
 import { useCatalogList } from '@/features/catalog/useCatalogList';
 
 const {
@@ -104,7 +104,9 @@ const {
 
           <div class="catalog-card__content">
             <p class="catalog-card__title">{{ item.c2cItemsName }}</p>
-            <p class="catalog-card__meta">{{ item.referencePriceLabel || '参考价待补充' }}</p>
+            <p class="catalog-card__meta">
+              {{ resolveReferencePriceLabel(item.referencePriceLabel, item.referencePriceMin, item.referencePriceMax) }}
+            </p>
           </div>
         </button>
       </div>

@@ -32,6 +32,7 @@ func main() {
 
 	addr := bootstrap.HTTPAddr()
 	log.Info().Str("addr", addr).Str("staticRoot", staticRoot).Msg("starting web server")
+	log.Info().Str("addr", addr).Msg("standalone web runtime active via cmd/web; use this listener for browser access instead of the desktop app port")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

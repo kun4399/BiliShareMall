@@ -23,7 +23,7 @@ Windows 推荐使用 `installer.exe` 结尾的安装包。
 ## 运行形态
 
 - 桌面端：继续通过 Wails 构建本地桌面 app。
-- 网页端：通过 Go HTTP 服务提供同一套前端页面与 API，默认监听 `3754`，适合远程服务器部署。
+- 网页端：通过 `cmd/web` 提供同一套前端页面与 API，默认监听 `3761`，适合远程服务器部署。
 
 ## 自动发布
 
@@ -78,7 +78,7 @@ make run
 make run-web
 ```
 
-本地联调模式（后端 `:3754` + Vite 前端开发服务器）：
+本地联调模式（后端 `:3761` + Vite 前端开发服务器）：
 
 ```bash
 make dev-web
@@ -87,7 +87,7 @@ make dev-web
 网页端启动后，默认访问：
 
 ```text
-http://127.0.0.1:3754
+http://127.0.0.1:3761
 ```
 
 ### 4. 运行测试与类型检查
@@ -146,7 +146,7 @@ docker build -t kun4399/bilisharemall:latest .
 
 ## 服务端环境变量
 
-- `BSM_HTTP_ADDR`：网页端监听地址，默认 `:3754`
+- `BSM_HTTP_ADDR`：网页端监听地址，默认 `:3761`
 - `BSM_DATA_DIR`：数据目录覆盖路径
 - `BSM_BASE_PATH`：资源根目录覆盖路径，调试或自定义部署目录时可用
 - `BSM_WEB_ROOT`：网页静态资源目录覆盖路径，默认自动查找 `frontend/dist`
@@ -168,7 +168,7 @@ docker compose up -d
 默认配置说明：
 
 - 镜像：`kun4399/bilisharemall:latest`
-- 端口映射：`3754:3754`
+- 端口映射：`3761:3761`
 - 数据目录映射：`./data:/data`
 
 宿主机 `./data` 目录会持久化以下运行数据：
@@ -193,8 +193,9 @@ docker compose up -d
 ### 3) Linux / 远程服务器部署说明
 
 - 当前网页端已支持 Linux 运行。
-- Web API 与前端静态资源由同一个 Go 进程提供。
-- 浏览器端会像桌面端一样保存 B 站 cookie，并通过 `X-Bili-Cookie` 请求头传给后端需要登录态的接口。
+- Web API 与前端静态资源由同一个 `cmd/web` Go 进程提供。
+- 网页端默认以服务端共享会话保存 B 站登录态；扫码一次后，后续刷新页面或更换设备访问同一个 Web 服务都无需重复扫码。
+- `X-Bili-Cookie` 请求头仍可作为显式覆盖入口，但浏览器端不再依赖本地保存 cookie 才能维持登录。
 
 ## 维护信息
 
