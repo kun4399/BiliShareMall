@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/kun4399/BiliShareMall/internal/dao"
 	"github.com/kun4399/BiliShareMall/internal/domain"
 	bilihttp "github.com/kun4399/BiliShareMall/internal/http"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type mockMarketClient struct {
@@ -608,6 +608,7 @@ CREATE TABLE c2c_items
     detail_img        TEXT,
     sku_id            INTEGER,
     items_id          INTEGER,
+    reference_price   INTEGER NOT NULL DEFAULT 0,
     total_items_count INTEGER,
     price             INTEGER,
     show_price        TEXT,

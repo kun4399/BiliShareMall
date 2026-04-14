@@ -11,6 +11,7 @@ import (
 type MonitorRule struct {
 	ID       int64  `json:"id"`
 	SkuID    int64  `json:"skuId"`
+	SkuName  string `json:"skuName"`
 	MinPrice int    `json:"minPrice"`
 	MaxPrice int    `json:"maxPrice"`
 	Enabled  bool   `json:"enabled"`
@@ -49,7 +50,24 @@ func (d *Database) GetMonitorConfig() (MonitorConfig, error) {
 
 	rows, err := d.Db.QueryContext(
 		context.Background(),
-		`SELECT id, sku_id, min_price, max_price, enabled, remark
+		`SELECT
+			id,
+			sku_id,
+			COALESCE((
+				SELECT COALESCE(NULLIF(detail_name, ''), c2c_items_name)
+				FROM c2c_items c
+				WHERE c.sku_id = monitor_rules.sku_id
+				ORDER BY
+					CASE WHEN COALESCE(detail_img, '') != '' THEN 0 ELSE 1 END,
+					COALESCE(publish_time, 0) DESC,
+					updated_at DESC,
+					c2c_items_id DESC
+				LIMIT 1
+			), '') AS sku_name,
+			min_price,
+			max_price,
+			enabled,
+			remark
 		FROM monitor_rules
 		ORDER BY id ASC`,
 	)
@@ -61,7 +79,7 @@ func (d *Database) GetMonitorConfig() (MonitorConfig, error) {
 	for rows.Next() {
 		var rule MonitorRule
 		var enabled int
-		if err := rows.Scan(&rule.ID, &rule.SkuID, &rule.MinPrice, &rule.MaxPrice, &enabled, &rule.Remark); err != nil {
+		if err := rows.Scan(&rule.ID, &rule.SkuID, &rule.SkuName, &rule.MinPrice, &rule.MaxPrice, &enabled, &rule.Remark); err != nil {
 			return config, err
 		}
 		rule.Enabled = enabled == 1

@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS c2c_items
     detail_img        TEXT,
     sku_id            INTEGER,
     items_id          INTEGER,
+    reference_price   INTEGER NOT NULL DEFAULT 0,
     total_items_count INTEGER,
     price             INTEGER,
     show_price        TEXT,
@@ -147,3 +148,14 @@ CREATE TABLE IF NOT EXISTS monitor_alert_events
 
 CREATE INDEX IF NOT EXISTS idx_monitor_alert_events_rule_time
     ON monitor_alert_events(rule_id, created_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS auth_session
+(
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    cookies    TEXT NOT NULL DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR IGNORE INTO auth_session (id, cookies)
+VALUES (1, '');

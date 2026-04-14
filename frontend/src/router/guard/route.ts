@@ -7,8 +7,8 @@ import type {
 } from 'vue-router';
 import type { RouteKey, RoutePath } from '@elegant-router/types';
 import { getRouteName } from '@/router/elegant/transform';
+import { useAuthStore } from '@/store/modules/auth';
 import { useRouteStore } from '@/store/modules/route';
-import { localStg } from '@/utils/storage';
 
 /**
  * create route guard
@@ -26,8 +26,10 @@ export function createRouteGuard(router: Router) {
 
     const rootRoute: RouteKey = 'root';
     const loginRoute: RouteKey = 'login';
+    const authStore = useAuthStore();
+    await authStore.initAuthState();
 
-    const isLogin = Boolean(localStg.get('cookies'));
+    const isLogin = authStore.isLogin;
     const needLogin = !to.meta.constant;
 
     const routeSwitches: CommonType.StrategicPattern[] = [
@@ -77,6 +79,7 @@ export function createRouteGuard(router: Router) {
  * @param to to route
  */
 async function initRoute(to: RouteLocationNormalized): Promise<RouteLocationRaw | null> {
+  const authStore = useAuthStore();
   const routeStore = useRouteStore();
 
   const notFoundRoute: RouteKey = 'not-found';
@@ -129,7 +132,8 @@ async function initRoute(to: RouteLocationNormalized): Promise<RouteLocationRaw 
   }
 
   // if the auth route is not initialized, then initialize the auth route
-  const isLogin = Boolean(localStg.get('cookies'));
+  await authStore.initAuthState();
+  const isLogin = authStore.isLogin;
   // initialize the auth route requires the user to be logged in, if not, redirect to the login page
   if (!isLogin) {
     const loginRoute: RouteKey = 'login';

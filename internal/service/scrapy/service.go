@@ -48,6 +48,7 @@ type MarketRuntimeConfig struct {
 type MonitorRule struct {
 	ID       int64  `json:"id"`
 	SkuID    int64  `json:"skuId"`
+	SkuName  string `json:"skuName"`
 	MinPrice int    `json:"minPrice"`
 	MaxPrice int    `json:"maxPrice"`
 	Enabled  bool   `json:"enabled"`
@@ -569,6 +570,7 @@ func toMonitorConfig(config dao.MonitorConfig) MonitorConfig {
 		rules = append(rules, MonitorRule{
 			ID:       rule.ID,
 			SkuID:    rule.SkuID,
+			SkuName:  rule.SkuName,
 			MinPrice: rule.MinPrice,
 			MaxPrice: rule.MaxPrice,
 			Enabled:  rule.Enabled,

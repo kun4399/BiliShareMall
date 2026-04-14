@@ -3,11 +3,13 @@ import {
   CreateScrapyItem as WailsCreateScrapyItem,
   DeleteScrapyItem as WailsDeleteScrapyItem,
   DoneTask as WailsDoneTask,
+  ClearSharedLoginSession as WailsClearSharedLoginSession,
   GetC2CItemNameBySku as WailsGetC2CItemNameBySku,
   GetLoginKeyAndUrl as WailsGetLoginKeyAndUrl,
   GetMarketRuntimeConfig as WailsGetMarketRuntimeConfig,
   GetMonitorConfig as WailsGetMonitorConfig,
   GetRunningTaskIds as WailsGetRunningTaskIds,
+  GetSharedLoginSession as WailsGetSharedLoginSession,
   ListC2CItem as WailsListC2CItem,
   ListC2CItemDetailBySku as WailsListC2CItemDetailBySku,
   ListMonitorRuleHits as WailsListMonitorRuleHits,
@@ -24,6 +26,8 @@ type EventCallback = (payload: unknown) => void;
 export interface AppGateway {
   GetLoginKeyAndUrl(): Promise<auth.LoginInfo>;
   VerifyLogin(loginKey: string): Promise<auth.VerifyLoginResponse>;
+  GetSharedLoginSession(): Promise<auth.SharedLoginSession>;
+  ClearSharedLoginSession(): Promise<void>;
   ListC2CItem(
     page: number,
     pageSize: number,
@@ -63,6 +67,14 @@ class WailsGateway implements AppGateway {
 
   VerifyLogin(loginKey: string) {
     return WailsVerifyLogin(loginKey);
+  }
+
+  GetSharedLoginSession() {
+    return WailsGetSharedLoginSession();
+  }
+
+  ClearSharedLoginSession() {
+    return WailsClearSharedLoginSession();
   }
 
   ListC2CItem(
@@ -219,6 +231,14 @@ class WebGateway implements AppGateway {
     return fetchJSON<auth.VerifyLoginResponse>(`/api/auth/poll?${query.toString()}`);
   }
 
+  GetSharedLoginSession() {
+    return fetchJSON<auth.SharedLoginSession>('/api/auth/session');
+  }
+
+  ClearSharedLoginSession() {
+    return fetchJSON<void>('/api/auth/session', { method: 'DELETE' });
+  }
+
   ListC2CItem(
     page: number,
     pageSize: number,
@@ -372,6 +392,8 @@ export const appGateway = createGateway();
 
 export const GetLoginKeyAndUrl = () => appGateway.GetLoginKeyAndUrl();
 export const VerifyLogin = (loginKey: string) => appGateway.VerifyLogin(loginKey);
+export const GetSharedLoginSession = () => appGateway.GetSharedLoginSession();
+export const ClearSharedLoginSession = () => appGateway.ClearSharedLoginSession();
 export const ListC2CItem = (
   page: number,
   pageSize: number,

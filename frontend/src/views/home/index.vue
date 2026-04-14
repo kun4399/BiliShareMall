@@ -54,7 +54,7 @@ const {
           </template>
         </NCollapseItem>
 
-        <NCollapseItem title="最低价格">
+        <NCollapseItem title="参考价格区间">
           <NFlex>
             <NInputNumber v-model:value="priceRange[0]" :precision="2">
               <template #suffix>元</template>
@@ -104,6 +104,7 @@ const {
 
           <div class="catalog-card__content">
             <p class="catalog-card__title">{{ item.c2cItemsName }}</p>
+            <p class="catalog-card__meta">{{ item.referencePriceLabel || '参考价待补充' }}</p>
           </div>
         </button>
       </div>
@@ -193,6 +194,8 @@ const {
 
 .catalog-card__content {
   display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .catalog-card__title {
@@ -201,6 +204,13 @@ const {
   font-weight: 700;
   line-height: 1.5;
   color: #0f172a;
+}
+
+.catalog-card__meta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #64748b;
 }
 
 .catalog-empty {

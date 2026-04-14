@@ -14,6 +14,20 @@ export namespace auth {
 	        this.login_url = source["login_url"];
 	    }
 	}
+	export class SharedLoginSession {
+	    loggedIn: boolean;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SharedLoginSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.loggedIn = source["loggedIn"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
 	export class VerifyLoginResponse {
 	    status: string;
 	    cookies: string;
@@ -113,6 +127,10 @@ export namespace catalog {
 	    c2cItemsName: string;
 	    detailImg: string;
 	    itemCount: number;
+	    referencePriceMin: number;
+	    referencePriceMax: number;
+	    referencePriceLabel: string;
+	    firstSeenTime: number;
 	    latestPublishTime: number;
 	
 	    static createFrom(source: any = {}) {
@@ -125,6 +143,10 @@ export namespace catalog {
 	        this.c2cItemsName = source["c2cItemsName"];
 	        this.detailImg = source["detailImg"];
 	        this.itemCount = source["itemCount"];
+	        this.referencePriceMin = source["referencePriceMin"];
+	        this.referencePriceMax = source["referencePriceMax"];
+	        this.referencePriceLabel = source["referencePriceLabel"];
+	        this.firstSeenTime = source["firstSeenTime"];
 	        this.latestPublishTime = source["latestPublishTime"];
 	    }
 	}
@@ -284,6 +306,7 @@ export namespace scrapy {
 	export class MonitorRule {
 	    id: number;
 	    skuId: number;
+	    skuName: string;
 	    minPrice: number;
 	    maxPrice: number;
 	    enabled: boolean;
@@ -297,6 +320,7 @@ export namespace scrapy {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.skuId = source["skuId"];
+	        this.skuName = source["skuName"];
 	        this.minPrice = source["minPrice"];
 	        this.maxPrice = source["maxPrice"];
 	        this.enabled = source["enabled"];

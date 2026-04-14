@@ -70,7 +70,13 @@ func (a *App) Initialize() error {
 	if err = database.Init(string(content)); err != nil {
 		return err
 	}
+	if err = database.EnsureC2CItemReferencePriceColumn(); err != nil {
+		return err
+	}
 	if err = database.EnsureMonitorRuleRemarkColumn(); err != nil {
+		return err
+	}
+	if err = database.EnsureAuthSessionTable(); err != nil {
 		return err
 	}
 	if err = database.UpdateVersion(DatabaseVersion); err != nil {
@@ -80,7 +86,7 @@ func (a *App) Initialize() error {
 	a.d = database
 	a.bus = events.NewBus()
 	a.c = cache.New(5*time.Minute, 10*time.Minute)
-	a.authService = authsvc.NewService()
+	a.authService = authsvc.NewService(a.d)
 	a.catalogService = catalogsvc.NewService(a.d, a.c)
 	a.scrapyService = scrapysvc.NewService(a.d, a.bus.Emit)
 	return nil
@@ -152,7 +158,7 @@ func (a *App) attachWailsEvents() {
 
 func (a *App) getAuthService() *authsvc.Service {
 	if a.authService == nil {
-		a.authService = authsvc.NewService()
+		a.authService = authsvc.NewService(a.d)
 	}
 	return a.authService
 }

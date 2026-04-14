@@ -29,6 +29,9 @@ const imageProxyUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebK
 type AppAPI interface {
 	GetLoginKeyAndUrl() appcore.LoginInfo
 	VerifyLogin(loginKey string) appcore.VerifyLoginResponse
+	GetSharedLoginSession() appcore.SharedLoginSession
+	ClearSharedLoginSession() error
+	ResolveLoginCookie(cookieHeader string) string
 	ListC2CItem(page, pageSize int, filterName string, sortOption int, startTime, endTime int64, fromPrice, toPrice int) (appcore.C2CItemGroupListVO, error)
 	GetC2CItemNameBySku(skuID int64) (string, error)
 	ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOption int, statusFilter, cookieStr string) (appcore.C2CItemDetailListVO, error)
@@ -48,7 +51,7 @@ type AppAPI interface {
 type Server struct {
 	api        AppAPI
 	staticRoot string
-	imageHTTP   *http.Client
+	imageHTTP  *http.Client
 }
 
 func NewServer(api AppAPI, staticRoot string) *Server {
@@ -94,6 +97,8 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/auth/qr", s.handleLoginQR)
 	mux.HandleFunc("GET /api/auth/poll", s.handleLoginPoll)
+	mux.HandleFunc("GET /api/auth/session", s.handleLoginSession)
+	mux.HandleFunc("DELETE /api/auth/session", s.handleClearLoginSession)
 	mux.HandleFunc("GET /api/catalog/items", s.handleCatalogItems)
 	mux.HandleFunc("GET /api/catalog/items/{skuId}", s.handleCatalogItemDetail)
 	mux.HandleFunc("GET /api/catalog/sku/{skuId}/name", s.handleCatalogSkuName)
@@ -125,6 +130,18 @@ func (s *Server) handleLoginPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.api.VerifyLogin(key))
+}
+
+func (s *Server) handleLoginSession(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.api.GetSharedLoginSession())
+}
+
+func (s *Server) handleClearLoginSession(w http.ResponseWriter, _ *http.Request) {
+	if err := s.api.ClearSharedLoginSession(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleCatalogItems(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +226,7 @@ func (s *Server) handleCatalogItemDetail(w http.ResponseWriter, r *http.Request)
 		pageSize,
 		sortOption,
 		strings.TrimSpace(r.URL.Query().Get("statusFilter")),
-		biliCookieFromRequest(r),
+		s.resolveBiliCookie(r),
 	)
 	if serviceErr != nil {
 		writeError(w, http.StatusInternalServerError, serviceErr)
@@ -316,7 +333,7 @@ func (s *Server) handleStartScrapyTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if serviceErr := s.api.StartTask(taskID, biliCookieFromRequest(r)); serviceErr != nil {
+	if serviceErr := s.api.StartTask(taskID, s.resolveBiliCookie(r)); serviceErr != nil {
 		writeError(w, http.StatusBadRequest, serviceErr)
 		return
 	}
@@ -337,7 +354,7 @@ func (s *Server) handleStopScrapyTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleScrapyRuntimeConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.api.GetMarketRuntimeConfig(biliCookieFromRequest(r)))
+	writeJSON(w, http.StatusOK, s.api.GetMarketRuntimeConfig(s.resolveBiliCookie(r)))
 }
 
 func (s *Server) handleRunningTaskIDs(w http.ResponseWriter, _ *http.Request) {
@@ -525,8 +542,8 @@ func int64Query(r *http.Request, key string, fallback int64) (int64, error) {
 	return parsed, nil
 }
 
-func biliCookieFromRequest(r *http.Request) string {
-	return strings.TrimSpace(r.Header.Get(biliCookieHeader))
+func (s *Server) resolveBiliCookie(r *http.Request) string {
+	return s.api.ResolveLoginCookie(strings.TrimSpace(r.Header.Get(biliCookieHeader)))
 }
 
 func normalizeImageProxyURL(rawURL string) (*neturl.URL, error) {

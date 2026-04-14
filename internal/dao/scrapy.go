@@ -152,6 +152,7 @@ type CSCItem struct {
 	DetailImg        string `json:"detailImg"`
 	SkuID            int64  `json:"skuId"`
 	ItemsID          int64  `json:"itemsId"`
+	ReferencePrice   int    `json:"referencePrice"`
 	TotalItemsCount  int    `json:"totalItemsCount"`
 	Price            int    `json:"price"`
 	ShowPrice        string `json:"showPrice"`
@@ -171,11 +172,11 @@ type CSCItem struct {
 func (d *Database) CreateCSCItem(item *CSCItem) (int64, error) {
 	result, err := d.Db.ExecContext(context.Background(),
 		`INSERT INTO c2c_items (
-			c2c_items_id, type, c2c_items_name, detail_name, detail_img, sku_id, items_id,
+			c2c_items_id, type, c2c_items_name, detail_name, detail_img, sku_id, items_id, reference_price,
 			total_items_count, price, show_price, show_market_price, seller_uid, seller_name,
 			payment_time, publish_time, is_my_publish, uface, raw_status, raw_sale_status,
 			normalized_status, status_checked_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
 		ON CONFLICT(c2c_items_id) DO UPDATE SET
 			type = excluded.type,
 			c2c_items_name = excluded.c2c_items_name,
@@ -183,6 +184,7 @@ func (d *Database) CreateCSCItem(item *CSCItem) (int64, error) {
 			detail_img = excluded.detail_img,
 			sku_id = excluded.sku_id,
 			items_id = excluded.items_id,
+			reference_price = excluded.reference_price,
 			total_items_count = excluded.total_items_count,
 			price = excluded.price,
 			show_price = excluded.show_price,
@@ -207,6 +209,7 @@ func (d *Database) CreateCSCItem(item *CSCItem) (int64, error) {
 		item.DetailImg,
 		item.SkuID,
 		item.ItemsID,
+		item.ReferencePrice,
 		item.TotalItemsCount,
 		item.Price,
 		item.ShowPrice,
@@ -238,7 +241,7 @@ func (d *Database) SaveMailListToDB(response *domain.MailListResponse) int64 {
 func (d *Database) SaveMailListToDBStrict(response *domain.MailListResponse) (int64, error) {
 	sum := int64(0)
 	for _, item := range response.Data.Data {
-		detailName, detailImg, skuID, itemsID := pickMarketDetail(item)
+		detailName, detailImg, skuID, itemsID, referencePrice := pickMarketDetail(item)
 		scrapyItem := CSCItem{
 			C2CItemsID:       item.C2CItemsID,
 			Type:             item.Type,
@@ -247,6 +250,7 @@ func (d *Database) SaveMailListToDBStrict(response *domain.MailListResponse) (in
 			DetailImg:        detailImg,
 			SkuID:            skuID,
 			ItemsID:          itemsID,
+			ReferencePrice:   referencePrice,
 			TotalItemsCount:  item.TotalItemsCount,
 			Price:            item.Price,
 			ShowPrice:        item.ShowPrice,
@@ -271,10 +275,10 @@ func (d *Database) SaveMailListToDBStrict(response *domain.MailListResponse) (in
 	return sum, nil
 }
 
-func pickMarketDetail(item domain.MarketItem) (detailName, detailImg string, skuID, itemsID int64) {
+func pickMarketDetail(item domain.MarketItem) (detailName, detailImg string, skuID, itemsID int64, referencePrice int) {
 	if len(item.DetailDtoList) == 0 {
-		return "", "", 0, 0
+		return "", "", 0, 0, 0
 	}
 	detail := item.DetailDtoList[0]
-	return detail.Name, detail.Img, int64(detail.SkuID), int64(detail.ItemsID)
+	return detail.Name, detail.Img, int64(detail.SkuID), int64(detail.ItemsID), detail.MarketPrice
 }

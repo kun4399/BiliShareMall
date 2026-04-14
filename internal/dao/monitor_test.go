@@ -49,6 +49,9 @@ func TestSaveAndLoadMonitorConfig(t *testing.T) {
 	if config.Rules[0].Remark != "自用规则" {
 		t.Fatalf("expected remark to be persisted, got %q", config.Rules[0].Remark)
 	}
+	if config.Rules[0].SkuName != "测试商品一号" {
+		t.Fatalf("expected sku name to be backfilled, got %q", config.Rules[0].SkuName)
+	}
 
 	rules, err := db.ReadEnabledMonitorRules()
 	if err != nil {
@@ -324,6 +327,22 @@ func newMonitorTestDatabase(t *testing.T) *Database {
 }
 
 const testMonitorSchemaSQL = `
+CREATE TABLE c2c_items
+(
+    c2c_items_id      INTEGER PRIMARY KEY,
+    c2c_items_name    TEXT    NOT NULL,
+    detail_name       TEXT,
+    detail_img        TEXT,
+    sku_id            INTEGER,
+    publish_time      INTEGER,
+    updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO c2c_items(c2c_items_id, c2c_items_name, detail_name, detail_img, sku_id, publish_time)
+VALUES
+    (1, '测试商品一号', '测试商品一号', '//img-1.png', 1001, 1710000000000),
+    (2, '测试商品二号', '测试商品二号', '//img-2.png', 1002, 1710003600000);
+
 CREATE TABLE monitor_config
 (
     id      INTEGER PRIMARY KEY CHECK (id = 1),

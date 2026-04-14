@@ -2,6 +2,7 @@ package dao
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"time"
 )
@@ -12,6 +13,9 @@ type C2CItemGroup struct {
 	DetailImg         string `json:"detailImg"`
 	ItemCount         int    `json:"itemCount"`
 	MinPrice          int    `json:"minPrice"`
+	ReferencePriceMin int    `json:"referencePriceMin"`
+	ReferencePriceMax int    `json:"referencePriceMax"`
+	FirstSeenTime     int64  `json:"firstSeenTime"`
 	LatestPublishTime int64  `json:"latestPublishTime"`
 }
 
@@ -30,6 +34,9 @@ func (d *Database) ReadC2CItemGroups(page, pageSize int, filterName string, sort
 				sku_id,
 				COALESCE(MAX(NULLIF(detail_name, '')), MAX(c2c_items_name)) AS c2c_items_name,
 				MIN(price) AS min_price,
+				MIN(CASE WHEN reference_price > 0 THEN reference_price END) AS reference_price_min,
+				MAX(CASE WHEN reference_price > 0 THEN reference_price END) AS reference_price_max,
+				MIN(COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0)) AS first_seen_time,
 				MAX(COALESCE(publish_time, 0)) AS latest_publish_time,
 				COUNT(*) AS item_count
 			FROM c2c_items
@@ -45,6 +52,9 @@ func (d *Database) ReadC2CItemGroups(page, pageSize int, filterName string, sort
 			COALESCE(rep.detail_img, '') AS detail_img,
 			grouped.item_count,
 			grouped.min_price,
+			COALESCE(grouped.reference_price_min, 0) AS reference_price_min,
+			COALESCE(grouped.reference_price_max, 0) AS reference_price_max,
+			grouped.first_seen_time,
 			grouped.latest_publish_time
 		FROM grouped
 		LEFT JOIN c2c_items rep ON rep.c2c_items_id = (
@@ -91,6 +101,9 @@ func (d *Database) ReadC2CItemGroups(page, pageSize int, filterName string, sort
 			&item.DetailImg,
 			&item.ItemCount,
 			&item.MinPrice,
+			&item.ReferencePriceMin,
+			&item.ReferencePriceMax,
+			&item.FirstSeenTime,
 			&item.LatestPublishTime,
 		); err != nil {
 			return nil, 0, err
@@ -102,6 +115,53 @@ func (d *Database) ReadC2CItemGroups(page, pageSize int, filterName string, sort
 	}
 
 	return items, totalCount, nil
+}
+
+func (d *Database) EnsureC2CItemReferencePriceColumn() error {
+	rows, err := d.Db.QueryContext(context.Background(), `PRAGMA table_info(c2c_items)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	hasReferencePrice := false
+	for rows.Next() {
+		var cid int
+		var name string
+		var dataType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == "reference_price" {
+			hasReferencePrice = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if !hasReferencePrice {
+		if _, err := d.Db.ExecContext(
+			context.Background(),
+			`ALTER TABLE c2c_items ADD COLUMN reference_price INTEGER NOT NULL DEFAULT 0`,
+		); err != nil {
+			return err
+		}
+	}
+
+	_, err = d.Db.ExecContext(
+		context.Background(),
+		`UPDATE c2c_items
+		SET reference_price = CAST(ROUND(CAST(show_market_price AS REAL) * 100) AS INTEGER)
+		WHERE COALESCE(reference_price, 0) <= 0
+		  AND TRIM(COALESCE(show_market_price, '')) != ''
+		  AND CAST(show_market_price AS REAL) > 0`,
+	)
+	return err
 }
 
 func (d *Database) GetC2CItemGroupMeta(skuID int64) (C2CItemGroupMeta, error) {
@@ -144,7 +204,7 @@ func (d *Database) ReadC2CItemDetailsBySku(skuID int64, page, pageSize int, sort
 
 	query := `
 		SELECT
-			c2c_items_id, type, c2c_items_name, detail_name, detail_img, sku_id, items_id,
+			c2c_items_id, type, c2c_items_name, detail_name, detail_img, sku_id, items_id, reference_price,
 			total_items_count, price, show_price, show_market_price, seller_uid, seller_name,
 			payment_time, publish_time, is_my_publish, uface, raw_status, raw_sale_status,
 			normalized_status, status_checked_at,
@@ -177,7 +237,7 @@ func (d *Database) ReadAllC2CItemDetailsBySku(skuID int64) ([]CSCItem, error) {
 	rows, err := d.Db.QueryContext(
 		context.Background(),
 		`SELECT
-			c2c_items_id, type, c2c_items_name, detail_name, detail_img, sku_id, items_id,
+			c2c_items_id, type, c2c_items_name, detail_name, detail_img, sku_id, items_id, reference_price,
 			total_items_count, price, show_price, show_market_price, seller_uid, seller_name,
 			payment_time, publish_time, is_my_publish, uface, raw_status, raw_sale_status,
 			normalized_status, status_checked_at,

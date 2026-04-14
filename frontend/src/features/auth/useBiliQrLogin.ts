@@ -1,9 +1,11 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import { GetLoginKeyAndUrl, VerifyLogin } from '@/gateway';
+import { resolveAppRuntime } from '@/gateway/runtime';
 import { useAuthStore } from '@/store/modules/auth';
 
 export function useBiliQrLogin() {
   const authStore = useAuthStore();
+  const runtime = resolveAppRuntime();
   const loginUrl = ref('');
   const loading = ref(true);
   const statusText = ref('加载二维码中');
@@ -37,7 +39,7 @@ export function useBiliQrLogin() {
           case 'confirmed':
             if (ret.cookies !== '') {
               statusText.value = '登录成功，正在进入应用';
-              authStore.setCookies(ret.cookies);
+              authStore.setCookies(runtime === 'web' ? '' : ret.cookies);
               clearCheckInterval();
             }
             break;

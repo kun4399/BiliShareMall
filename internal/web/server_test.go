@@ -21,17 +21,36 @@ import (
 )
 
 type stubAPI struct {
-	bus *events.Bus
+	bus                     *events.Bus
+	sharedSession           appcore.SharedLoginSession
+	resolvedCookie          string
+	lastResolvedHeader      string
+	lastDetailCookie        string
+	lastRuntimeConfigCookie string
 }
 
 func (s *stubAPI) GetLoginKeyAndUrl() appcore.LoginInfo { return appcore.LoginInfo{} }
 func (s *stubAPI) VerifyLogin(loginKey string) appcore.VerifyLoginResponse {
 	return appcore.VerifyLoginResponse{}
 }
+func (s *stubAPI) GetSharedLoginSession() appcore.SharedLoginSession {
+	return s.sharedSession
+}
+func (s *stubAPI) ClearSharedLoginSession() error {
+	s.sharedSession = appcore.SharedLoginSession{}
+	return nil
+}
+func (s *stubAPI) ResolveLoginCookie(cookieHeader string) string {
+	s.lastResolvedHeader = cookieHeader
+	if cookieHeader != "" {
+		return cookieHeader
+	}
+	return s.resolvedCookie
+}
 func (s *stubAPI) ListC2CItem(page, pageSize int, filterName string, sortOption int, startTime, endTime int64, fromPrice, toPrice int) (appcore.C2CItemGroupListVO, error) {
 	return appcore.C2CItemGroupListVO{
 		Items: []appcore.C2CItemGroupVO{
-			{SkuID: 1001, C2CItemsName: "测试商品"},
+			{SkuID: 1001, C2CItemsName: "测试商品", ReferencePriceLabel: "参考价 129.00 元"},
 		},
 		Total:       1,
 		TotalPages:  1,
@@ -42,6 +61,7 @@ func (s *stubAPI) GetC2CItemNameBySku(skuID int64) (string, error) {
 	return "测试商品", nil
 }
 func (s *stubAPI) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOption int, statusFilter, cookieStr string) (appcore.C2CItemDetailListVO, error) {
+	s.lastDetailCookie = cookieStr
 	return appcore.C2CItemDetailListVO{}, nil
 }
 func (s *stubAPI) ReadAllScrapyItems() []dao.ScrapyItem {
@@ -55,6 +75,7 @@ func (s *stubAPI) StartTask(taskID int, cookies string) error { return nil }
 func (s *stubAPI) DoneTask(taskID int) error                  { return nil }
 func (s *stubAPI) GetRunningTaskIds() []int                   { return []int{1, 2} }
 func (s *stubAPI) GetMarketRuntimeConfig(cookieStr string) appcore.MarketRuntimeConfig {
+	s.lastRuntimeConfigCookie = cookieStr
 	return appcore.MarketRuntimeConfig{}
 }
 func (s *stubAPI) GetMonitorConfig() appcore.MonitorConfig { return appcore.MonitorConfig{} }
@@ -85,6 +106,45 @@ func TestCatalogItemsEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(body, `"currentPage":2`) {
 		t.Fatalf("expected response body to contain currentPage, got %s", body)
+	}
+	if !strings.Contains(body, `"referencePriceLabel":"参考价 129.00 元"`) {
+		t.Fatalf("expected response body to contain referencePriceLabel, got %s", body)
+	}
+}
+
+func TestLoginSessionEndpoint(t *testing.T) {
+	server := newTestServer(t)
+	server.api.(*stubAPI).sharedSession = appcore.SharedLoginSession{
+		LoggedIn:  true,
+		UpdatedAt: 1710000000000,
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/session", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"loggedIn":true`) {
+		t.Fatalf("expected loggedIn in body, got %s", body)
+	}
+}
+
+func TestClearLoginSessionEndpoint(t *testing.T) {
+	server := newTestServer(t)
+	server.api.(*stubAPI).sharedSession = appcore.SharedLoginSession{LoggedIn: true}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/auth/session", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d", recorder.Code)
+	}
+	if server.api.(*stubAPI).sharedSession.LoggedIn {
+		t.Fatal("expected shared session to be cleared")
 	}
 }
 
@@ -212,6 +272,42 @@ func TestCatalogSkuNameEndpoint(t *testing.T) {
 	expected := fmt.Sprintf(`"name":"%s"`, "测试商品")
 	if !strings.Contains(recorder.Body.String(), expected) {
 		t.Fatalf("expected response body to contain %s, got %s", expected, recorder.Body.String())
+	}
+}
+
+func TestCatalogDetailEndpointFallsBackToSharedCookie(t *testing.T) {
+	server := newTestServer(t)
+	server.api.(*stubAPI).resolvedCookie = "SESSDATA=shared"
+
+	req := httptest.NewRequest(http.MethodGet, "/api/catalog/items/1001?page=1&pageSize=10&sortOption=1", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if server.api.(*stubAPI).lastResolvedHeader != "" {
+		t.Fatalf("expected empty request header cookie, got %q", server.api.(*stubAPI).lastResolvedHeader)
+	}
+	if server.api.(*stubAPI).lastDetailCookie != "SESSDATA=shared" {
+		t.Fatalf("expected shared cookie fallback, got %q", server.api.(*stubAPI).lastDetailCookie)
+	}
+}
+
+func TestCatalogDetailEndpointPrefersRequestCookie(t *testing.T) {
+	server := newTestServer(t)
+	server.api.(*stubAPI).resolvedCookie = "SESSDATA=shared"
+
+	req := httptest.NewRequest(http.MethodGet, "/api/catalog/items/1001?page=1&pageSize=10&sortOption=1", nil)
+	req.Header.Set(biliCookieHeader, "SESSDATA=request")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if server.api.(*stubAPI).lastDetailCookie != "SESSDATA=request" {
+		t.Fatalf("expected request cookie, got %q", server.api.(*stubAPI).lastDetailCookie)
 	}
 }
 

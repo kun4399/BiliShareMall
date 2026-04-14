@@ -5,6 +5,8 @@ import {auth} from '../models';
 import {scrapy} from '../models';
 import {catalog} from '../models';
 
+export function ClearSharedLoginSession():Promise<void>;
+
 export function CreateScrapyItem(arg1:dao.ScrapyItem):Promise<number>;
 
 export function DeleteScrapyItem(arg1:number):Promise<void>;
@@ -23,6 +25,8 @@ export function GetNowRunTaskId():Promise<number>;
 
 export function GetRunningTaskIds():Promise<Array<number>>;
 
+export function GetSharedLoginSession():Promise<auth.SharedLoginSession>;
+
 export function Initialize():Promise<void>;
 
 export function ListC2CItem(arg1:number,arg2:number,arg3:string,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number):Promise<catalog.C2CItemGroupListVO>;
@@ -32,6 +36,8 @@ export function ListC2CItemDetailBySku(arg1:number,arg2:number,arg3:number,arg4:
 export function ListMonitorRuleHits(arg1:number):Promise<Array<scrapy.MonitorHitGroup>>;
 
 export function ReadAllScrapyItems():Promise<Array<dao.ScrapyItem>>;
+
+export function ResolveLoginCookie(arg1:string):Promise<string>;
 
 export function SaveMonitorConfig(arg1:scrapy.MonitorConfig):Promise<void>;
 

@@ -22,11 +22,15 @@ type C2CItemGroupListVO struct {
 }
 
 type C2CItemGroupVO struct {
-	SkuID             int64  `json:"skuId"`
-	C2CItemsName      string `json:"c2cItemsName"`
-	DetailImg         string `json:"detailImg"`
-	ItemCount         int    `json:"itemCount"`
-	LatestPublishTime int64  `json:"latestPublishTime"`
+	SkuID               int64  `json:"skuId"`
+	C2CItemsName        string `json:"c2cItemsName"`
+	DetailImg           string `json:"detailImg"`
+	ItemCount           int    `json:"itemCount"`
+	ReferencePriceMin   int    `json:"referencePriceMin"`
+	ReferencePriceMax   int    `json:"referencePriceMax"`
+	ReferencePriceLabel string `json:"referencePriceLabel"`
+	FirstSeenTime       int64  `json:"firstSeenTime"`
+	LatestPublishTime   int64  `json:"latestPublishTime"`
 }
 
 type C2CItemDetailListVO struct {
@@ -89,11 +93,15 @@ func (s *Service) ListC2CItem(page, pageSize int, filterName string, sortOption 
 	result := make([]C2CItemGroupVO, 0, len(items))
 	for _, item := range items {
 		result = append(result, C2CItemGroupVO{
-			SkuID:             item.SkuID,
-			C2CItemsName:      item.C2CItemsName,
-			DetailImg:         item.DetailImg,
-			ItemCount:         item.ItemCount,
-			LatestPublishTime: item.LatestPublishTime,
+			SkuID:               item.SkuID,
+			C2CItemsName:        item.C2CItemsName,
+			DetailImg:           item.DetailImg,
+			ItemCount:           item.ItemCount,
+			ReferencePriceMin:   item.ReferencePriceMin,
+			ReferencePriceMax:   item.ReferencePriceMax,
+			ReferencePriceLabel: formatReferencePriceLabel(item.ReferencePriceMin, item.ReferencePriceMax),
+			FirstSeenTime:       item.FirstSeenTime,
+			LatestPublishTime:   item.LatestPublishTime,
 		})
 	}
 
@@ -122,12 +130,13 @@ func (s *Service) GetC2CItemNameBySku(skuID int64) (string, error) {
 	meta, err := s.d.GetC2CItemGroupMeta(skuID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			cacheStore.SetDefault(cacheKey, "")
 			return "", nil
 		}
 		return "", err
 	}
-	cacheStore.SetDefault(cacheKey, meta.C2CItemsName)
+	if meta.C2CItemsName != "" {
+		cacheStore.SetDefault(cacheKey, meta.C2CItemsName)
+	}
 	return meta.C2CItemsName, nil
 }
 
@@ -348,6 +357,26 @@ func calcTotalPages(total, pageSize int) int {
 		return 1
 	}
 	return (total + pageSize - 1) / pageSize
+}
+
+func formatReferencePriceLabel(min, max int) string {
+	if min <= 0 && max <= 0 {
+		return "参考价待补充"
+	}
+
+	formatPrice := func(value int) string {
+		return fmt.Sprintf("%.2f", float64(value)/100)
+	}
+
+	if min > 0 && max > 0 && min != max {
+		return fmt.Sprintf("参考价 %s - %s 元", formatPrice(min), formatPrice(max))
+	}
+
+	value := max
+	if min > value {
+		value = min
+	}
+	return fmt.Sprintf("参考价 %s 元", formatPrice(value))
 }
 
 func buildItemLink(c2cItemsID int64) string {

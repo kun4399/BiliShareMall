@@ -22,12 +22,15 @@ func buildGroupConditions(filterName string, startTime, endTime int64, fromPrice
 		conditions = append(conditions, "grouped.latest_publish_time <= ?")
 		args = append(args, endTime)
 	}
+	if fromPrice != -1 || toPrice != -1 {
+		conditions = append(conditions, "grouped.reference_price_min > 0", "grouped.reference_price_max > 0")
+	}
 	if fromPrice != -1 {
-		conditions = append(conditions, "grouped.min_price >= ?")
+		conditions = append(conditions, "grouped.reference_price_min >= ?")
 		args = append(args, fromPrice*100)
 	}
 	if toPrice != -1 {
-		conditions = append(conditions, "grouped.min_price <= ?")
+		conditions = append(conditions, "grouped.reference_price_max <= ?")
 		args = append(args, toPrice*100)
 	}
 
@@ -37,11 +40,11 @@ func buildGroupConditions(filterName string, startTime, endTime int64, fromPrice
 func buildGroupSort(sortOption int) string {
 	switch sortOption {
 	case 2:
-		return "ORDER BY grouped.min_price ASC, grouped.latest_publish_time DESC"
+		return "ORDER BY CASE WHEN grouped.reference_price_min > 0 THEN 0 ELSE 1 END ASC, grouped.reference_price_min ASC, grouped.first_seen_time DESC"
 	case 3:
-		return "ORDER BY grouped.min_price DESC, grouped.latest_publish_time DESC"
+		return "ORDER BY CASE WHEN grouped.reference_price_max > 0 THEN 0 ELSE 1 END ASC, grouped.reference_price_max DESC, grouped.first_seen_time DESC"
 	default:
-		return "ORDER BY grouped.latest_publish_time DESC, grouped.min_price ASC"
+		return "ORDER BY grouped.first_seen_time DESC, CASE WHEN grouped.reference_price_min > 0 THEN 0 ELSE 1 END ASC, grouped.reference_price_min ASC"
 	}
 }
 
@@ -74,6 +77,7 @@ func scanCSCItem(scanner interface {
 		&item.DetailImg,
 		&item.SkuID,
 		&item.ItemsID,
+		&item.ReferencePrice,
 		&item.TotalItemsCount,
 		&item.Price,
 		&item.ShowPrice,

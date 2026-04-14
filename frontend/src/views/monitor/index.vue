@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useClipboard } from '@vueuse/core';
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onActivated, onMounted, onUnmounted, ref } from 'vue';
 import { useLoadingBar, useMessage } from 'naive-ui';
 import { scrapy } from '~/wailsjs/go/models';
 import { GetC2CItemNameBySku, GetMonitorConfig, ListMonitorRuleHits, OnAppEvent, SaveMonitorConfig } from '@/gateway';
@@ -32,21 +32,23 @@ const skuLookupTimerMap = new Map<number, ReturnType<typeof setTimeout>>();
 const skuNameCache = new Map<number, string>();
 const skuLookupPromiseMap = new Map<number, Promise<string>>();
 const unlisteners: Array<() => void> = [];
-const skuLookupTimeoutMs = 2000;
 let ruleKeySeed = 1;
+let hasActivatedOnce = false;
 
 function createRuleForm(partial?: Partial<MonitorRuleForm>): MonitorRuleForm {
+  const initialSkuId = partial?.skuId ?? null;
+  const initialSkuName = partial?.skuName ?? '';
   return {
     key: ruleKeySeed++,
     id: partial?.id ?? 0,
-    skuId: partial?.skuId ?? null,
+    skuId: initialSkuId,
     minPriceYuan: partial?.minPriceYuan ?? null,
     maxPriceYuan: partial?.maxPriceYuan ?? null,
     enabled: partial?.enabled ?? true,
-    skuName: '',
+    skuName: initialSkuName,
     skuNameLoading: false,
     skuLookupSeq: 0,
-    lastLookupSkuId: 0
+    lastLookupSkuId: initialSkuId && initialSkuName ? Number(initialSkuId) : 0
   };
 }
 
@@ -174,7 +176,9 @@ async function lookupSkuName(rule: MonitorRuleForm) {
     }
     rule.skuName = name;
     rule.lastLookupSkuId = skuId;
-    skuNameCache.set(skuId, name);
+    if (name) {
+      skuNameCache.set(skuId, name);
+    }
   } catch (err) {
     if (rule.skuLookupSeq !== currentSeq) {
       return;
@@ -215,19 +219,13 @@ async function lookupSkuNameFast(skuId: number): Promise<string> {
     return inFlight;
   }
 
-  const timeoutPromise = new Promise<string>(resolve => {
-    setTimeout(() => resolve(''), skuLookupTimeoutMs);
-  });
-  const requestPromise = (async () => {
+  const wrapped = (async () => {
     try {
-      const name = (await GetC2CItemNameBySku(skuId)).trim();
-      return name;
+      return (await GetC2CItemNameBySku(skuId)).trim();
     } catch (err) {
       return '';
     }
-  })();
-
-  const wrapped = Promise.race([requestPromise, timeoutPromise]).finally(() => {
+  })().finally(() => {
     skuLookupPromiseMap.delete(skuId);
   });
   skuLookupPromiseMap.set(skuId, wrapped);
@@ -296,15 +294,13 @@ async function loadConfig() {
       createRuleForm({
         id: rule.id || 0,
         skuId: rule.skuId || null,
+        skuName: rule.skuName || '',
         minPriceYuan: toYuan(rule.minPrice || 0),
         maxPriceYuan: toYuan(rule.maxPrice || 0),
         enabled: rule.enabled ?? true
       })
     );
     rules.value = loadedRules;
-    loadedRules.forEach(rule => {
-      void lookupSkuName(rule);
-    });
     await loadRuleHits();
   } catch (err: any) {
     message.error(err?.message || '读取配置失败');
@@ -357,6 +353,14 @@ onMounted(() => {
       upsertRuleHit(normalizeHit(payload));
     })
   );
+  void loadConfig();
+});
+
+onActivated(() => {
+  if (!hasActivatedOnce) {
+    hasActivatedOnce = true;
+    return;
+  }
   void loadConfig();
 });
 

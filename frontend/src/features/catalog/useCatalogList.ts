@@ -30,8 +30,8 @@ export function useCatalogList() {
 
   const sortways = ref<SortWay[]>([
     { value: 1, label: '最新上架' },
-    { value: 2, label: '最低价升序' },
-    { value: 3, label: '最低价降序' }
+    { value: 2, label: '参考价升序' },
+    { value: 3, label: '参考价降序' }
   ]);
 
   const emptyDescription = computed(() => {
