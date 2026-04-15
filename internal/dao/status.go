@@ -40,21 +40,19 @@ func isOffSale(rawStatus *int) bool {
 }
 
 func NormalizeMarketStatusFromDetail(publishStatus, rawStatus, rawSaleStatus *int, dropReason string) string {
+	if hasSoldOutSignal(dropReason, rawStatus, rawSaleStatus) {
+		return StatusSoldOut
+	}
+
 	if publishStatus != nil {
 		switch *publishStatus {
 		case 1:
 			return StatusOnSale
 		case 2:
-			if hasSoldOutSignal(dropReason, rawStatus, rawSaleStatus) {
-				return StatusSoldOut
-			}
 			return StatusOffSale
 		}
 	}
 
-	if hasSoldOutSignal(dropReason, rawStatus, rawSaleStatus) {
-		return StatusSoldOut
-	}
 	if hasOffSaleSignal(dropReason, rawStatus) {
 		return StatusOffSale
 	}

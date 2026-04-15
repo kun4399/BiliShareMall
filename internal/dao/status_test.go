@@ -22,6 +22,12 @@ func TestNormalizeMarketStatusFromDetail(t *testing.T) {
 			want:          StatusOnSale,
 		},
 		{
+			name:          "sale status sold-out overrides publish on-sale",
+			publishStatus: &publishOnSale,
+			rawSaleStatus: &soldEnum,
+			want:          StatusSoldOut,
+		},
+		{
 			name:          "publish status off-sale by manual drop",
 			publishStatus: &publishOffSale,
 			dropReason:    "手动下架",
