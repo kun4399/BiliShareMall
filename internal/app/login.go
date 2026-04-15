@@ -18,6 +18,7 @@ func (a *App) GetLoginKeyAndUrl() LoginInfo {
 
 type VerifyLoginResponse = authsvc.VerifyLoginResponse
 type SharedLoginSession = authsvc.SharedLoginSession
+type LoginAccount = authsvc.LoginAccount
 
 func (a *App) VerifyLogin(loginKey string) VerifyLoginResponse {
 	result, err := a.getAuthService().VerifyLogin(loginKey)
@@ -38,7 +39,33 @@ func (a *App) GetSharedLoginSession() SharedLoginSession {
 }
 
 func (a *App) ClearSharedLoginSession() error {
+	if a.getScrapyService().HasRunningTasks() {
+		return authsvc.ErrRunningTasksExist
+	}
 	return a.getAuthService().ClearSharedLoginSession()
+}
+
+func (a *App) ListLoginAccounts() []LoginAccount {
+	accounts, err := a.getAuthService().ListLoginAccounts()
+	if err != nil {
+		log.Error().Err(err).Msg("ListLoginAccounts error")
+		return []LoginAccount{}
+	}
+	return accounts
+}
+
+func (a *App) DeleteLoginAccount(id int64) error {
+	if a.getScrapyService().IsAnyTaskRunningWithAccount(id) {
+		return authsvc.ErrAccountInUse
+	}
+	return a.getAuthService().DeleteLoginAccount(id)
+}
+
+func (a *App) ClearAllLoginAccounts() error {
+	if a.getScrapyService().HasRunningTasks() {
+		return authsvc.ErrRunningTasksExist
+	}
+	return a.getAuthService().ClearAllLoginAccounts()
 }
 
 func (a *App) ResolveLoginCookie(cookieHeader string) string {

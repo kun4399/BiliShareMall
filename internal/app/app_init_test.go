@@ -207,4 +207,22 @@ CREATE TABLE IF NOT EXISTS monitor_rules
 	max_price INTEGER NOT NULL,
 	enabled   INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS scrapy_items
+(
+	id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+	price_filter          TEXT NOT NULL DEFAULT '',
+	price_filter_label    TEXT NOT NULL DEFAULT '',
+	discount_filter       TEXT NOT NULL DEFAULT '',
+	discount_filter_label TEXT NOT NULL DEFAULT '',
+	product               TEXT NOT NULL DEFAULT '',
+	product_name          TEXT NOT NULL DEFAULT '',
+	account_id            INTEGER NOT NULL DEFAULT 0,
+	request_interval_seconds REAL NOT NULL DEFAULT 3,
+	nums                  INTEGER,
+	increase_number       INTEGER,
+	next_token            TEXT,
+	create_time           DATETIME,
+	"order"               TEXT
+);
 `

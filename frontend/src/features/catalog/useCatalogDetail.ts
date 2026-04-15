@@ -1,10 +1,10 @@
 import dayjs from 'dayjs';
-import { useClipboard } from '@vueuse/core';
 import { NButton, NButtonGroup, NTag, useMessage } from 'naive-ui';
 import { computed, h, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { catalog } from '~/wailsjs/go/models';
 import { getToken } from '@/store/modules/auth/shared';
+import { copyText } from '@/utils/clipboard';
 import { fetchCatalogDetail } from './api';
 
 interface SortWay {
@@ -43,8 +43,6 @@ export function useCatalogDetail() {
     { label: '已售出', value: '已售出' }
   ];
 
-  const { copy, isSupported } = useClipboard();
-
   const skuId = computed(() => Number(route.params.skuId || 0));
   const items = computed(() => detail.value?.items ?? []);
 
@@ -59,11 +57,11 @@ export function useCatalogDetail() {
   }
 
   async function handleCopy(link: string) {
-    if (!isSupported) {
+    const copied = await copyText(link);
+    if (!copied) {
       message.error(`复制失败，请自行复制链接：${link}`);
       return;
     }
-    await copy(link);
     message.success('链接已复制');
   }
 

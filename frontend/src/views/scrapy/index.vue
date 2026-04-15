@@ -6,6 +6,7 @@ const {
   scrapyList,
   runningTaskIds,
   runningCount,
+  accountOptions,
   selectedProduct,
   selectedOrder,
   selectedPriceFilter,
@@ -18,7 +19,9 @@ const {
   isTaskRunning,
   getTaskUiState,
   getOptionLabel,
+  getAccountLabelById,
   addScrapy,
+  handleSaveTaskConfig,
   handleClose,
   handleRun,
   handleStop
@@ -41,7 +44,7 @@ const {
         </NButton>
       </template>
 
-      <NGrid cols="1 s:2 l:4" responsive="screen" :x-gap="12" :y-gap="8">
+      <NGrid cols="1 s:2 l:4" responsive="screen" :x-gap="10" :y-gap="6">
         <NFormItemGi label="类型">
           <NSelect
             v-model:value="selectedProduct"
@@ -105,25 +108,28 @@ const {
       :key="scrapy.id"
       :task="scrapy"
       :order-label="getOptionLabel(orderOptions, scrapy.order)"
+      :account-label="getAccountLabelById(scrapy.accountId, scrapy.accountName)"
+      :account-options="accountOptions"
       :task-state="getTaskUiState(scrapy.id)"
       :is-running="isTaskRunning(scrapy.id)"
       @close="handleClose(idx)"
       @run="handleRun(idx)"
       @stop="handleStop(scrapy.id)"
+      @save-config="handleSaveTaskConfig(scrapy.id, $event.accountId, $event.requestIntervalSeconds)"
     />
   </NSpace>
 </template>
 
 <style lang="css">
 .card-wrapper :is(.n-card__content, .n-card-header) {
-  padding-bottom: 12px;
+  padding-bottom: 8px;
 }
 
 .task-form-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 6px;
+  margin-top: 2px;
 }
 
 .running-card {

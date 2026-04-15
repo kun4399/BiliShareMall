@@ -1,6 +1,8 @@
 /* eslint-disable class-methods-use-this, max-params, @typescript-eslint/no-invalid-void-type */
 import {
+  ClearAllLoginAccounts as WailsClearAllLoginAccounts,
   CreateScrapyItem as WailsCreateScrapyItem,
+  DeleteLoginAccount as WailsDeleteLoginAccount,
   DeleteScrapyItem as WailsDeleteScrapyItem,
   DoneTask as WailsDoneTask,
   ClearSharedLoginSession as WailsClearSharedLoginSession,
@@ -12,10 +14,12 @@ import {
   GetSharedLoginSession as WailsGetSharedLoginSession,
   ListC2CItem as WailsListC2CItem,
   ListC2CItemDetailBySku as WailsListC2CItemDetailBySku,
+  ListLoginAccounts as WailsListLoginAccounts,
   ListMonitorRuleHits as WailsListMonitorRuleHits,
   ReadAllScrapyItems as WailsReadAllScrapyItems,
   SaveMonitorConfig as WailsSaveMonitorConfig,
   StartTask as WailsStartTask,
+  UpdateScrapyTaskConfig as WailsUpdateScrapyTaskConfig,
   VerifyLogin as WailsVerifyLogin
 } from '~/wailsjs/go/app/App';
 import type { auth, catalog, dao, scrapy } from '~/wailsjs/go/models';
@@ -28,6 +32,9 @@ export interface AppGateway {
   VerifyLogin(loginKey: string): Promise<auth.VerifyLoginResponse>;
   GetSharedLoginSession(): Promise<auth.SharedLoginSession>;
   ClearSharedLoginSession(): Promise<void>;
+  ListLoginAccounts(): Promise<auth.LoginAccount[]>;
+  DeleteLoginAccount(id: number): Promise<void>;
+  ClearAllLoginAccounts(): Promise<void>;
   ListC2CItem(
     page: number,
     pageSize: number,
@@ -50,6 +57,7 @@ export interface AppGateway {
   ReadAllScrapyItems(): Promise<dao.ScrapyItem[]>;
   DeleteScrapyItem(id: number): Promise<void>;
   CreateScrapyItem(item: dao.ScrapyItem): Promise<number>;
+  UpdateScrapyTaskConfig(taskID: number, accountID: number, requestIntervalSeconds: number): Promise<void>;
   StartTask(taskID: number, cookies: string): Promise<void>;
   DoneTask(taskID: number): Promise<void>;
   GetRunningTaskIds(): Promise<number[]>;
@@ -75,6 +83,18 @@ class WailsGateway implements AppGateway {
 
   ClearSharedLoginSession() {
     return WailsClearSharedLoginSession();
+  }
+
+  ListLoginAccounts() {
+    return WailsListLoginAccounts();
+  }
+
+  DeleteLoginAccount(id: number) {
+    return WailsDeleteLoginAccount(id);
+  }
+
+  ClearAllLoginAccounts() {
+    return WailsClearAllLoginAccounts();
   }
 
   ListC2CItem(
@@ -115,6 +135,10 @@ class WailsGateway implements AppGateway {
 
   async CreateScrapyItem(item: dao.ScrapyItem) {
     return Number(await WailsCreateScrapyItem(item));
+  }
+
+  UpdateScrapyTaskConfig(taskID: number, accountID: number, requestIntervalSeconds: number) {
+    return WailsUpdateScrapyTaskConfig(taskID, accountID, requestIntervalSeconds);
   }
 
   StartTask(taskID: number, cookies: string) {
@@ -239,6 +263,18 @@ class WebGateway implements AppGateway {
     return fetchJSON<void>('/api/auth/session', { method: 'DELETE' });
   }
 
+  ListLoginAccounts() {
+    return fetchJSON<auth.LoginAccount[]>('/api/auth/accounts');
+  }
+
+  DeleteLoginAccount(id: number) {
+    return fetchJSON<void>(`/api/auth/accounts/${id}`, { method: 'DELETE' });
+  }
+
+  ClearAllLoginAccounts() {
+    return fetchJSON<void>('/api/auth/accounts', { method: 'DELETE' });
+  }
+
   ListC2CItem(
     page: number,
     pageSize: number,
@@ -300,6 +336,16 @@ class WebGateway implements AppGateway {
       body: JSON.stringify(item)
     });
     return Number(result.id || 0);
+  }
+
+  UpdateScrapyTaskConfig(taskID: number, accountID: number, requestIntervalSeconds: number) {
+    return fetchJSON<void>(`/api/scrapy/tasks/${taskID}/config`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        accountId: accountID,
+        requestIntervalSeconds
+      })
+    });
   }
 
   StartTask(taskID: number, cookies: string) {
@@ -394,6 +440,9 @@ export const GetLoginKeyAndUrl = () => appGateway.GetLoginKeyAndUrl();
 export const VerifyLogin = (loginKey: string) => appGateway.VerifyLogin(loginKey);
 export const GetSharedLoginSession = () => appGateway.GetSharedLoginSession();
 export const ClearSharedLoginSession = () => appGateway.ClearSharedLoginSession();
+export const ListLoginAccounts = () => appGateway.ListLoginAccounts();
+export const DeleteLoginAccount = (id: number) => appGateway.DeleteLoginAccount(id);
+export const ClearAllLoginAccounts = () => appGateway.ClearAllLoginAccounts();
 export const ListC2CItem = (
   page: number,
   pageSize: number,
@@ -416,6 +465,8 @@ export const ListC2CItemDetailBySku = (
 export const ReadAllScrapyItems = () => appGateway.ReadAllScrapyItems();
 export const DeleteScrapyItem = (id: number) => appGateway.DeleteScrapyItem(id);
 export const CreateScrapyItem = (item: dao.ScrapyItem) => appGateway.CreateScrapyItem(item);
+export const UpdateScrapyTaskConfig = (taskID: number, accountID: number, requestIntervalSeconds: number) =>
+  appGateway.UpdateScrapyTaskConfig(taskID, accountID, requestIntervalSeconds);
 export const StartTask = (taskID: number, cookies: string) => appGateway.StartTask(taskID, cookies);
 export const DoneTask = (taskID: number) => appGateway.DoneTask(taskID);
 export const GetRunningTaskIds = () => appGateway.GetRunningTaskIds();

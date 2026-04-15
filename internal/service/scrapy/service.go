@@ -2,6 +2,7 @@ package scrapy
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
@@ -26,9 +27,11 @@ const (
 )
 
 type TaskRuntime struct {
-	taskID  int
-	cookies string
-	cancel  context.CancelFunc
+	taskID          int
+	accountID       int64
+	cookies         string
+	requestInterval time.Duration
+	cancel          context.CancelFunc
 }
 
 type MarketFilterOption struct {
@@ -154,6 +157,11 @@ func (s *Service) DeleteScrapyItem(id int) error {
 
 func (s *Service) CreateScrapyItem(item dao.ScrapyItem) int64 {
 	item.CreateTime = time.Now()
+	// Creation flow keeps runtime settings at defaults; users can customize later per task.
+	item.AccountID = 0
+	if item.RequestIntervalSec <= 0 {
+		item.RequestIntervalSec = 3
+	}
 	id, err := s.d.CreateScrapyItem(item)
 	if err != nil {
 		log.Error().Err(err).Msg("error creating scrapy item")
@@ -167,6 +175,19 @@ func (s *Service) StartTask(taskID int, cookies string) error {
 	if err != nil {
 		return err
 	}
+
+	resolvedCookies := strings.TrimSpace(cookies)
+	if scrapyItem.AccountID > 0 {
+		account, accountErr := s.d.GetAuthAccountByID(scrapyItem.AccountID)
+		if accountErr != nil {
+			return fmt.Errorf("bound account not found, please re-select account")
+		}
+		resolvedCookies = strings.TrimSpace(account.Cookies)
+	}
+	if resolvedCookies == "" {
+		return fmt.Errorf("missing login cookies")
+	}
+	requestInterval := s.resolveTaskRequestInterval(scrapyItem.RequestIntervalSec)
 
 	s.mu.Lock()
 	if running := s.runningTasks[taskID]; running != nil && running.cancel != nil {
@@ -185,16 +206,43 @@ func (s *Service) StartTask(taskID int, cookies string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.runningTasks[taskID] = &TaskRuntime{
-		taskID:  taskID,
-		cookies: cookies,
-		cancel:  cancel,
+		taskID:          taskID,
+		accountID:       scrapyItem.AccountID,
+		cookies:         resolvedCookies,
+		requestInterval: requestInterval,
+		cancel:          cancel,
 	}
 	s.mu.Unlock()
 
 	s.emitEvent("updateScrapyItem", scrapyItem)
 
 	s.wg.Add(1)
-	go s.scrapyLoop(taskID, cookies, ctx)
+	go s.scrapyLoop(taskID, resolvedCookies, requestInterval, ctx)
+	return nil
+}
+
+func (s *Service) UpdateScrapyTaskConfig(taskID int, accountID int64, requestIntervalSeconds float64) error {
+	if requestIntervalSeconds < 0 {
+		return fmt.Errorf("request interval must be >= 0")
+	}
+	if s.isTaskRunning(taskID) {
+		return fmt.Errorf("task is running, stop it first")
+	}
+	if accountID > 0 {
+		if _, err := s.d.GetAuthAccountByID(accountID); err != nil {
+			return fmt.Errorf("account not found")
+		}
+	}
+	if err := s.d.UpdateScrapyTaskConfig(taskID, accountID, requestIntervalSeconds); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("task not found")
+		}
+		return err
+	}
+	item, err := s.d.ReadScrapyItem(taskID)
+	if err == nil {
+		s.emitEvent("updateScrapyItem", item)
+	}
 	return nil
 }
 
@@ -230,6 +278,33 @@ func (s *Service) GetRunningTaskIds() []int {
 	}
 	sort.Ints(ids)
 	return ids
+}
+
+func (s *Service) HasRunningTasks() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, runtime := range s.runningTasks {
+		if runtime != nil && runtime.cancel != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) IsAnyTaskRunningWithAccount(accountID int64) bool {
+	if accountID <= 0 {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, runtime := range s.runningTasks {
+		if runtime != nil && runtime.cancel != nil && runtime.accountID == accountID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) GetMarketRuntimeConfig(cookieStr string) MarketRuntimeConfig {
@@ -316,7 +391,7 @@ func (s *Service) ListMonitorRuleHits(limitPerRule int) []MonitorHitGroup {
 	return groups
 }
 
-func (s *Service) scrapyLoop(taskID int, cookies string, ctx context.Context) {
+func (s *Service) scrapyLoop(taskID int, cookies string, requestInterval time.Duration, ctx context.Context) {
 	defer s.wg.Done()
 	defer s.unregisterTask(taskID)
 
@@ -375,7 +450,7 @@ func (s *Service) scrapyLoop(taskID int, cookies string, ctx context.Context) {
 			continue
 		}
 
-		if !sleepWithContext(ctx, s.requestInterval) {
+		if !sleepWithContext(ctx, requestInterval) {
 			return
 		}
 	}
@@ -622,6 +697,26 @@ func sleepWithContext(ctx context.Context, duration time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+func normalizeIntervalSeconds(seconds float64) float64 {
+	if seconds < 0 {
+		return 3
+	}
+	return seconds
+}
+
+func (s *Service) resolveTaskRequestInterval(seconds float64) time.Duration {
+	if seconds == 0 {
+		return 0
+	}
+	if seconds > 0 {
+		return time.Duration(seconds * float64(time.Second))
+	}
+	if s.requestInterval > 0 {
+		return s.requestInterval
+	}
+	return time.Duration(normalizeIntervalSeconds(seconds) * float64(time.Second))
 }
 
 func (s *Service) recordAndEmitMonitorHit(event dao.MonitorAlertEvent) {

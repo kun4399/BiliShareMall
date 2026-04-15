@@ -27,6 +27,7 @@ type stubAPI struct {
 	lastResolvedHeader      string
 	lastDetailCookie        string
 	lastRuntimeConfigCookie string
+	accounts                []appcore.LoginAccount
 }
 
 func (s *stubAPI) GetLoginKeyAndUrl() appcore.LoginInfo { return appcore.LoginInfo{} }
@@ -38,6 +39,23 @@ func (s *stubAPI) GetSharedLoginSession() appcore.SharedLoginSession {
 }
 func (s *stubAPI) ClearSharedLoginSession() error {
 	s.sharedSession = appcore.SharedLoginSession{}
+	return nil
+}
+func (s *stubAPI) ListLoginAccounts() []appcore.LoginAccount {
+	return append([]appcore.LoginAccount(nil), s.accounts...)
+}
+func (s *stubAPI) DeleteLoginAccount(id int64) error {
+	filtered := make([]appcore.LoginAccount, 0, len(s.accounts))
+	for _, item := range s.accounts {
+		if item.ID != id {
+			filtered = append(filtered, item)
+		}
+	}
+	s.accounts = filtered
+	return nil
+}
+func (s *stubAPI) ClearAllLoginAccounts() error {
+	s.accounts = []appcore.LoginAccount{}
 	return nil
 }
 func (s *stubAPI) ResolveLoginCookie(cookieHeader string) string {
@@ -70,6 +88,9 @@ func (s *stubAPI) ReadAllScrapyItems() []dao.ScrapyItem {
 func (s *stubAPI) DeleteScrapyItem(id int) error { return nil }
 func (s *stubAPI) CreateScrapyItem(item dao.ScrapyItem) int64 {
 	return 42
+}
+func (s *stubAPI) UpdateScrapyTaskConfig(taskID int, accountID int64, requestIntervalSeconds float64) error {
+	return nil
 }
 func (s *stubAPI) StartTask(taskID int, cookies string) error { return nil }
 func (s *stubAPI) DoneTask(taskID int) error                  { return nil }
@@ -155,6 +176,44 @@ func TestClearLoginSessionEndpoint(t *testing.T) {
 	}
 }
 
+func TestListLoginAccountsEndpoint(t *testing.T) {
+	server := newTestServer(t)
+	server.api.(*stubAPI).accounts = []appcore.LoginAccount{
+		{ID: 1, UID: "1001", AccountName: "测试账号", LoggedIn: true},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/accounts", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"accountName":"测试账号"`) {
+		t.Fatalf("expected account in body, got %s", body)
+	}
+}
+
+func TestDeleteLoginAccountEndpoint(t *testing.T) {
+	server := newTestServer(t)
+	server.api.(*stubAPI).accounts = []appcore.LoginAccount{
+		{ID: 1, UID: "1001", AccountName: "A"},
+		{ID: 2, UID: "1002", AccountName: "B"},
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/auth/accounts/1", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d", recorder.Code)
+	}
+	if len(server.api.(*stubAPI).accounts) != 1 || server.api.(*stubAPI).accounts[0].ID != 2 {
+		t.Fatalf("expected account #1 removed, got %+v", server.api.(*stubAPI).accounts)
+	}
+}
+
 func TestCatalogItemsRejectsInvalidPage(t *testing.T) {
 	server := newTestServer(t)
 
@@ -184,6 +243,19 @@ func TestCreateScrapyTaskEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"id":42`) {
 		t.Fatalf("expected created id in body, got %s", recorder.Body.String())
+	}
+}
+
+func TestUpdateScrapyTaskConfigEndpoint(t *testing.T) {
+	server := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/scrapy/tasks/42/config", strings.NewReader(`{"accountId":1,"requestIntervalSeconds":0.5}`))
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d", recorder.Code)
 	}
 }
 

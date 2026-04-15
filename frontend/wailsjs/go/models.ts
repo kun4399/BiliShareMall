@@ -1,5 +1,25 @@
 export namespace auth {
 	
+	export class LoginAccount {
+	    id: number;
+	    uid: string;
+	    accountName: string;
+	    loggedIn: boolean;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LoginAccount(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.uid = source["uid"];
+	        this.accountName = source["accountName"];
+	        this.loggedIn = source["loggedIn"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
 	export class LoginInfo {
 	    key: string;
 	    login_url: string;
@@ -193,12 +213,15 @@ export namespace dao {
 	
 	export class ScrapyItem {
 	    id: number;
+	    accountId: number;
+	    accountName: string;
 	    priceFilter: string;
 	    priceFilterLabel: string;
 	    discountFilter: string;
 	    discountFilterLabel: string;
 	    product: string;
 	    productName: string;
+	    requestIntervalSeconds: number;
 	    nums: number;
 	    order: string;
 	    increaseNumber: number;
@@ -213,12 +236,15 @@ export namespace dao {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
+	        this.accountId = source["accountId"];
+	        this.accountName = source["accountName"];
 	        this.priceFilter = source["priceFilter"];
 	        this.priceFilterLabel = source["priceFilterLabel"];
 	        this.discountFilter = source["discountFilter"];
 	        this.discountFilterLabel = source["discountFilterLabel"];
 	        this.product = source["product"];
 	        this.productName = source["productName"];
+	        this.requestIntervalSeconds = source["requestIntervalSeconds"];
 	        this.nums = source["nums"];
 	        this.order = source["order"];
 	        this.increaseNumber = source["increaseNumber"];

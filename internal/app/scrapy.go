@@ -28,6 +28,10 @@ func (a *App) StartTask(taskID int, cookies string) error {
 	return a.getScrapyService().StartTask(taskID, cookies)
 }
 
+func (a *App) UpdateScrapyTaskConfig(taskID int, accountID int64, requestIntervalSeconds float64) error {
+	return a.getScrapyService().UpdateScrapyTaskConfig(taskID, accountID, requestIntervalSeconds)
+}
+
 func (a *App) DoneTask(taskID int) error {
 	return a.getScrapyService().DoneTask(taskID)
 }
@@ -38,6 +42,14 @@ func (a *App) GetNowRunTaskId() int {
 
 func (a *App) GetRunningTaskIds() []int {
 	return a.getScrapyService().GetRunningTaskIds()
+}
+
+func (a *App) HasRunningTasks() bool {
+	return a.getScrapyService().HasRunningTasks()
+}
+
+func (a *App) IsAnyTaskRunningWithAccount(accountID int64) bool {
+	return a.getScrapyService().IsAnyTaskRunningWithAccount(accountID)
 }
 
 func (a *App) GetMarketRuntimeConfig(cookieStr string) MarketRuntimeConfig {

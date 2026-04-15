@@ -22,7 +22,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const DatabaseVersion = 5
+const DatabaseVersion = 6
 
 // App struct
 type App struct {
@@ -82,6 +82,10 @@ func (a *App) Initialize() error {
 		if err = a.setupDatabase(database, DatabaseVersion); err != nil {
 			return err
 		}
+	} else {
+		if err = a.ensureDatabaseSchema(database); err != nil {
+			return err
+		}
 	}
 
 	a.d = database
@@ -94,35 +98,12 @@ func (a *App) Initialize() error {
 	return nil
 }
 
-// checkAndCreateDatabase 测试当前数据库的版本号，如果版本号低就重新建库
+// checkAndCreateDatabase 打开数据库；历史版本在 setupDatabase 中做无损迁移。
 func (a *App) checkAndCreateDatabase(nowVersion int) (ret *dao.Database, err error) {
 	dbPath := util.GetPath("data/bsm.db")
 	ret, err = dao.NewDatabase(dbPath)
 	if err != nil {
 		return nil, err
-	}
-	currentVersion, err := readDatabaseVersion(ret)
-	if err != nil {
-		_ = ret.Close()
-		return nil, err
-	}
-	// 如果版本号小于minVersion，则删除现有数据库并重新创建
-	if currentVersion > 0 && currentVersion < nowVersion {
-		log.Warn().Int("currentVersion", currentVersion).Int("nowVersion", nowVersion).Msg("recreate database because the database version is old")
-		err := ret.Close()
-		if err != nil {
-			return nil, err
-		}
-		err = os.Remove(dbPath)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-		// 重新打开
-		db, err := dao.NewDatabase(dbPath)
-		if err != nil {
-			return nil, err
-		}
-		ret = db
 	}
 	return ret, nil
 }
@@ -135,6 +116,14 @@ func (a *App) setupDatabase(database *dao.Database, version int) error {
 	if err = database.Init(string(content)); err != nil {
 		return err
 	}
+	if err = a.ensureDatabaseSchema(database); err != nil {
+		return err
+	}
+	return database.UpdateVersion(version)
+}
+
+func (a *App) ensureDatabaseSchema(database *dao.Database) error {
+	var err error
 	if err = database.EnsureC2CItemReferencePriceColumn(); err != nil {
 		return err
 	}
@@ -144,7 +133,16 @@ func (a *App) setupDatabase(database *dao.Database, version int) error {
 	if err = database.EnsureAuthSessionTable(); err != nil {
 		return err
 	}
-	return database.UpdateVersion(version)
+	if err = database.EnsureAuthAccountsTable(); err != nil {
+		return err
+	}
+	if err = database.SyncLegacyAuthSessionToAccount(); err != nil {
+		return err
+	}
+	if err = database.EnsureScrapyItemTaskRuntimeColumns(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func readDatabaseVersion(database *dao.Database) (int, error) {

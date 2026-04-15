@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { useClipboard } from '@vueuse/core';
 import { onActivated, onMounted, onUnmounted, ref } from 'vue';
 import { useLoadingBar, useMessage } from 'naive-ui';
 import { scrapy } from '~/wailsjs/go/models';
 import { GetC2CItemNameBySku, GetMonitorConfig, ListMonitorRuleHits, OnAppEvent, SaveMonitorConfig } from '@/gateway';
 import { hydrateMissingMonitorRuleSkuNames, seedMonitorRuleSkuNameCache } from '@/features/monitor/sku-name';
+import { copyText } from '@/utils/clipboard';
 import {
   buildMonitorConfigPayload,
   createRuleForm,
@@ -19,7 +19,6 @@ type RuleHitsMap = Record<number, scrapy.MonitorHitItem[]>;
 const hitLimitPerRule = 20;
 const message = useMessage();
 const loadingBar = useLoadingBar();
-const { copy, isSupported } = useClipboard();
 
 const webhook = ref('');
 const rules = ref<MonitorRuleForm[]>([]);
@@ -72,14 +71,10 @@ async function copyHitLink(link: string) {
     message.warning('链接为空');
     return;
   }
-  if (!isSupported.value) {
-    message.error(`复制失败，请自行复制：${normalized}`);
-    return;
-  }
-  try {
-    await copy(normalized);
+  const copied = await copyText(normalized);
+  if (copied) {
     message.success('链接已复制');
-  } catch (err) {
+  } else {
     message.error(`复制失败，请自行复制：${normalized}`);
   }
 }

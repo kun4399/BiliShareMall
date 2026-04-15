@@ -1,10 +1,12 @@
 package auth
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/kun4399/BiliShareMall/internal/dao"
 	bilihttp "github.com/kun4399/BiliShareMall/internal/http"
+	"github.com/rs/zerolog/log"
 )
 
 type LoginInfo struct {
@@ -21,6 +23,14 @@ type VerifyLoginResponse struct {
 type SharedLoginSession struct {
 	LoggedIn  bool  `json:"loggedIn"`
 	UpdatedAt int64 `json:"updatedAt"`
+}
+
+type LoginAccount struct {
+	ID          int64  `json:"id"`
+	UID         string `json:"uid"`
+	AccountName string `json:"accountName"`
+	LoggedIn    bool   `json:"loggedIn"`
+	UpdatedAt   int64  `json:"updatedAt"`
 }
 
 type Service struct {
@@ -51,6 +61,37 @@ func (s *Service) VerifyLogin(loginKey string) (VerifyLoginResponse, error) {
 		}, err
 	}
 	if strings.TrimSpace(result.Cookies) != "" && s.d != nil {
+		cookieStr := strings.TrimSpace(result.Cookies)
+		session := bilihttp.ParseBiliSession(cookieStr)
+		uid := strings.TrimSpace(session.Cookies["DedeUserID"])
+		accountName := uid
+
+		profile, profileErr := bilihttp.GetAccountProfile(cookieStr)
+		if profileErr == nil {
+			if strings.TrimSpace(profile.UID) != "" {
+				uid = strings.TrimSpace(profile.UID)
+			}
+			if strings.TrimSpace(profile.AccountName) != "" {
+				accountName = strings.TrimSpace(profile.AccountName)
+			}
+		} else {
+			log.Warn().Err(profileErr).Msg("get account profile failed, fallback to uid")
+		}
+
+		if uid == "" {
+			return VerifyLoginResponse{
+				Status:  string(result.Status),
+				Message: "登录成功但无法解析账号 UID",
+			}, fmt.Errorf("login confirmed but uid missing")
+		}
+
+		if _, upsertErr := s.d.UpsertAuthAccount(uid, accountName, cookieStr); upsertErr != nil {
+			return VerifyLoginResponse{
+				Status:  string(result.Status),
+				Message: upsertErr.Error(),
+			}, upsertErr
+		}
+
 		if saveErr := s.d.SaveAuthSession(result.Cookies); saveErr != nil {
 			return VerifyLoginResponse{
 				Status:  string(result.Status),
@@ -90,6 +131,52 @@ func (s *Service) ClearSharedLoginSession() error {
 	if s.d == nil {
 		return nil
 	}
+	if err := s.d.ClearAuthSession(); err != nil {
+		return err
+	}
+	return s.d.ClearAuthAccounts()
+}
+
+func (s *Service) ListLoginAccounts() ([]LoginAccount, error) {
+	if s.d == nil {
+		return []LoginAccount{}, nil
+	}
+
+	accounts, err := s.d.ListAuthAccounts()
+	if err != nil {
+		return nil, err
+	}
+	ret := make([]LoginAccount, 0, len(accounts))
+	for _, account := range accounts {
+		cookies := strings.TrimSpace(account.Cookies)
+		ret = append(ret, LoginAccount{
+			ID:          account.ID,
+			UID:         strings.TrimSpace(account.UID),
+			AccountName: strings.TrimSpace(account.AccountName),
+			LoggedIn:    bilihttp.ParseBiliSession(cookies).IsLoggedIn(),
+			UpdatedAt:   account.UpdatedAt.UnixMilli(),
+		})
+	}
+	return ret, nil
+}
+
+func (s *Service) DeleteLoginAccount(id int64) error {
+	if s.d == nil {
+		return nil
+	}
+	if err := s.d.DeleteAuthAccount(id); err != nil {
+		return err
+	}
+	return s.syncDefaultSessionByLatestAccount()
+}
+
+func (s *Service) ClearAllLoginAccounts() error {
+	if s.d == nil {
+		return nil
+	}
+	if err := s.d.ClearAuthAccounts(); err != nil {
+		return err
+	}
 	return s.d.ClearAuthSession()
 }
 
@@ -106,5 +193,29 @@ func (s *Service) ResolveLoginCookie(cookieHeader string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(session.Cookies)
+	cookies := strings.TrimSpace(session.Cookies)
+	if cookies != "" {
+		return cookies
+	}
+
+	accounts, err := s.d.ListAuthAccounts()
+	if err != nil || len(accounts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(accounts[0].Cookies)
+}
+
+func (s *Service) syncDefaultSessionByLatestAccount() error {
+	if s.d == nil {
+		return nil
+	}
+
+	accounts, err := s.d.ListAuthAccounts()
+	if err != nil {
+		return err
+	}
+	if len(accounts) == 0 {
+		return s.d.ClearAuthSession()
+	}
+	return s.d.SaveAuthSession(accounts[0].Cookies)
 }

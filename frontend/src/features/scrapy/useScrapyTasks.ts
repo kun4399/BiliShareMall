@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useLoadingBar, useMessage } from 'naive-ui';
-import type { scrapy } from '~/wailsjs/go/models';
+import type { auth, scrapy } from '~/wailsjs/go/models';
 import { dao } from '~/wailsjs/go/models';
 import {
   CreateScrapyItem,
@@ -8,9 +8,11 @@ import {
   DoneTask,
   GetMarketRuntimeConfig,
   GetRunningTaskIds,
+  ListLoginAccounts,
   OnAppEvent,
   ReadAllScrapyItems,
-  StartTask
+  StartTask,
+  UpdateScrapyTaskConfig
 } from '@/gateway';
 import { getToken } from '@/store/modules/auth/shared';
 import {
@@ -38,6 +40,7 @@ export function useScrapyTasks() {
 
   const taskStateMap = ref<Record<number, TaskUiState>>({});
   const scrapyList = ref<dao.ScrapyItem[]>([]);
+  const loginAccounts = ref<auth.LoginAccount[]>([]);
   const runningTaskIds = ref<number[]>([]);
   const runtimeConfig = ref<scrapy.MarketRuntimeConfig | null>(null);
   const selectedProduct = ref('');
@@ -50,6 +53,15 @@ export function useScrapyTasks() {
   const priceFilterOptions = computed(() => runtimeConfig.value?.priceFilters ?? []);
   const discountFilterOptions = computed(() => runtimeConfig.value?.discountFilters ?? []);
   const runningCount = computed(() => runningTaskIds.value.length);
+  const accountOptions = computed(() => {
+    return [
+      { label: '不绑定账号（默认会话）', value: 0 },
+      ...loginAccounts.value.map(account => ({
+        label: `${account.accountName || account.uid} (${account.loggedIn ? '已登录' : '未登录'})`,
+        value: account.id
+      }))
+    ];
+  });
 
   const sourceNotice = computed(() => {
     if (!runtimeConfig.value || runtimeConfig.value.source !== 'fallback') return '';
@@ -59,6 +71,17 @@ export function useScrapyTasks() {
   function getOptionLabel(options: scrapy.MarketFilterOption[], value: string) {
     if (value === '') return '不限';
     return options.find(option => option.value === value)?.label || value || '不限';
+  }
+
+  function getAccountLabelById(accountID: number, fallback = '') {
+    if (!accountID) {
+      return fallback || '未绑定账号';
+    }
+    const account = loginAccounts.value.find(item => item.id === accountID);
+    if (!account) {
+      return fallback || `账号#${accountID}`;
+    }
+    return account.accountName || account.uid || fallback || `账号#${accountID}`;
   }
 
   function displayLabel(label: string) {
@@ -114,10 +137,16 @@ export function useScrapyTasks() {
     }
   }
 
+  async function loadLoginAccounts() {
+    loginAccounts.value = await ListLoginAccounts();
+  }
+
   function createScrapyPayload() {
     return dao.ScrapyItem.createFrom({
       product: selectedProduct.value,
       productName: getOptionLabel(productOptions.value, selectedProduct.value),
+      accountId: 0,
+      requestIntervalSeconds: 3,
       order: selectedOrder.value,
       priceFilter: selectedPriceFilter.value,
       priceFilterLabel: getOptionLabel(priceFilterOptions.value, selectedPriceFilter.value),
@@ -188,6 +217,21 @@ export function useScrapyTasks() {
     }
   }
 
+  async function handleSaveTaskConfig(taskID: number, accountID: number, requestIntervalSeconds: number) {
+    const normalizedInterval = Number(requestIntervalSeconds.toFixed(1));
+    if (normalizedInterval < 0) {
+      message.warning('间隔不能小于 0');
+      return;
+    }
+    try {
+      await UpdateScrapyTaskConfig(taskID, accountID, normalizedInterval);
+      scrapyList.value = await getAllItems();
+      message.success('配置已更新');
+    } catch (err: any) {
+      message.error(err?.message || '配置更新失败');
+    }
+  }
+
   async function handleStop(taskID: number) {
     loadingBar.start();
     try {
@@ -211,6 +255,9 @@ export function useScrapyTasks() {
   }
 
   const unlisteners: Array<() => void> = [];
+  const onAccountsUpdated = () => {
+    void loadLoginAccounts();
+  };
 
   function setupEvents() {
     unlisteners.push(
@@ -281,7 +328,9 @@ export function useScrapyTasks() {
 
   onMounted(async () => {
     setupEvents();
+    window.addEventListener('bsm-login-accounts-updated', onAccountsUpdated);
     loadingBar.start();
+    await loadLoginAccounts();
     await loadRuntimeConfig();
     scrapyList.value = await getAllItems();
     runningTaskIds.value = await GetRunningTaskIds();
@@ -290,6 +339,7 @@ export function useScrapyTasks() {
   });
 
   onUnmounted(() => {
+    window.removeEventListener('bsm-login-accounts-updated', onAccountsUpdated);
     while (unlisteners.length > 0) {
       const unlisten = unlisteners.pop();
       if (unlisten) {
@@ -303,6 +353,8 @@ export function useScrapyTasks() {
     scrapyList,
     runningTaskIds,
     runningCount,
+    loginAccounts,
+    accountOptions,
     selectedProduct,
     selectedOrder,
     selectedPriceFilter,
@@ -315,9 +367,11 @@ export function useScrapyTasks() {
     isTaskRunning,
     getTaskUiState,
     getOptionLabel,
+    getAccountLabelById,
     displayLabel,
     getCompletedRoundCount,
     addScrapy,
+    handleSaveTaskConfig,
     handleClose,
     handleRun,
     handleStop

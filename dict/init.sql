@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS scrapy_items
     discount_filter_label TEXT NOT NULL,
     product         TEXT NOT NULL,
     product_name    TEXT NOT NULL,
+    account_id      INTEGER NOT NULL DEFAULT 0,
+    request_interval_seconds REAL NOT NULL DEFAULT 3,
     nums            INTEGER,
     increase_number INTEGER,
     next_token      TEXT,
@@ -159,3 +161,13 @@ CREATE TABLE IF NOT EXISTS auth_session
 
 INSERT OR IGNORE INTO auth_session (id, cookies)
 VALUES (1, '');
+
+CREATE TABLE IF NOT EXISTS auth_accounts
+(
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid          TEXT NOT NULL UNIQUE,
+    account_name TEXT NOT NULL DEFAULT '',
+    cookies      TEXT NOT NULL DEFAULT '',
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+);

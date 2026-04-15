@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { NButton, NCard, NIcon, NTag, NText, NTime } from 'naive-ui';
 import { Play, StopSharp } from '@vicons/ionicons5';
 import type { dao } from '~/wailsjs/go/models';
@@ -12,6 +12,8 @@ defineOptions({
 const props = defineProps<{
   task: dao.ScrapyItem;
   orderLabel: string;
+  accountLabel: string;
+  accountOptions: Array<{ label: string; value: number }>;
   taskState: TaskUiState;
   isRunning: boolean;
 }>();
@@ -20,11 +22,31 @@ const emit = defineEmits<{
   close: [];
   run: [];
   stop: [];
+  saveConfig: [payload: { accountId: number; requestIntervalSeconds: number }];
 }>();
 
 const statusMeta = computed(() => describeTaskUiState(props.taskState));
+const selectedAccountId = ref(0);
+const requestIntervalSeconds = ref(3);
+
+watch(
+  () => props.task,
+  task => {
+    selectedAccountId.value = Number(task.accountId || 0);
+    requestIntervalSeconds.value = Number(task.requestIntervalSeconds ?? 3);
+  },
+  { immediate: true, deep: true }
+);
 
 const metricItems = computed(() => [
+  {
+    label: '账号',
+    value: props.accountLabel || '未绑定账号'
+  },
+  {
+    label: '间隔',
+    value: props.task.requestIntervalSeconds === 0 ? '连续' : `${props.task.requestIntervalSeconds || 3}s`
+  },
   {
     label: '折扣',
     value: props.task.discountFilterLabel || '不限'
@@ -42,6 +64,13 @@ const metricItems = computed(() => [
     value: String(props.task.increaseNumber || 0)
   }
 ]);
+
+function saveConfig() {
+  emit('saveConfig', {
+    accountId: Number(selectedAccountId.value || 0),
+    requestIntervalSeconds: Number(requestIntervalSeconds.value || 0)
+  });
+}
 </script>
 
 <template>
@@ -50,6 +79,7 @@ const metricItems = computed(() => [
       <div class="task-card-title">
         <span>{{ task.productName }}</span>
         <NText depth="3">{{ orderLabel }}</NText>
+        <NTag size="small" type="info" round>{{ accountLabel || '未绑定账号' }}</NTag>
       </div>
     </template>
 
@@ -90,6 +120,19 @@ const metricItems = computed(() => [
           <NText depth="3" class="task-metric-label">{{ item.label }}</NText>
           <NText class="task-metric-value">{{ item.value }}</NText>
         </div>
+      </div>
+
+      <div class="task-config-row">
+        <NSelect v-model:value="selectedAccountId" :options="accountOptions" class="task-config-account" placeholder="选择账号" />
+        <NInputNumber
+          v-model:value="requestIntervalSeconds"
+          :min="0"
+          :step="0.1"
+          :precision="1"
+          class="task-config-interval"
+          placeholder="间隔秒，0=连续"
+        />
+        <NButton size="small" type="primary" :disabled="isRunning" @click="saveConfig">保存配置</NButton>
       </div>
     </div>
   </NCard>
@@ -141,16 +184,16 @@ const metricItems = computed(() => [
 
 .task-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 6px;
 }
 
 .task-metric-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
   background: var(--n-color-embedded);
 }
 
@@ -159,9 +202,25 @@ const metricItems = computed(() => [
 }
 
 .task-metric-value {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.3;
+}
+
+.task-config-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.task-config-account {
+  min-width: 180px;
+  flex: 1 1 240px;
+}
+
+.task-config-interval {
+  width: 160px;
 }
 
 @media (max-width: 640px) {
@@ -171,6 +230,10 @@ const metricItems = computed(() => [
 
   .task-card-time {
     display: none;
+  }
+
+  .task-config-interval {
+    width: 100%;
   }
 }
 </style>

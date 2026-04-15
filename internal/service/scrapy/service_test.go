@@ -229,9 +229,9 @@ func TestServiceStartTaskResetsNumsAndRoundCount(t *testing.T) {
 	_, err := db.Db.Exec(
 		`INSERT INTO scrapy_items(
 			id, price_filter, price_filter_label, discount_filter, discount_filter_label,
-			product, product_name, nums, increase_number, next_token, create_time, "order"
-		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		1, "", "不限", "", "不限", "sku-a", "sku-a", 9, 4, next, now, "TIME_DESC",
+			product, product_name, account_id, request_interval_seconds, nums, increase_number, next_token, create_time, "order"
+		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		1, "", "不限", "", "不限", "sku-a", "sku-a", 0, 0, 9, 4, next, now, "TIME_DESC",
 	)
 	if err != nil {
 		t.Fatalf("insert scrapy task failed: %v", err)
@@ -301,6 +301,64 @@ func TestServiceStartTaskResetsNumsAndRoundCount(t *testing.T) {
 	waitUntil(t, 2*time.Second, func() bool {
 		return len(svc.GetRunningTaskIds()) == 0
 	})
+}
+
+func TestServiceStartTaskFailsWhenBoundAccountMissing(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+	now := time.Now()
+	_, err := db.Db.Exec(
+		`INSERT INTO scrapy_items(
+			id, price_filter, price_filter_label, discount_filter, discount_filter_label,
+			product, product_name, account_id, request_interval_seconds, nums, increase_number, next_token, create_time, "order"
+		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		1, "", "不限", "", "不限", "sku-a", "sku-a", 9999, 3, 0, 0, "", now, "TIME_DESC",
+	)
+	if err != nil {
+		t.Fatalf("insert scrapy task failed: %v", err)
+	}
+
+	svc := NewService(db, nil)
+	startErr := svc.StartTask(1, "SESSDATA=a;DedeUserID=1;bili_jct=x")
+	if startErr == nil {
+		t.Fatal("expected StartTask to fail when bound account is missing")
+	}
+	if !strings.Contains(startErr.Error(), "bound account not found") {
+		t.Fatalf("expected missing account error, got %v", startErr)
+	}
+}
+
+func TestServiceUpdateScrapyTaskConfigPersistsDecimalInterval(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+	insertScrapyTask(t, db, 1, "sku-a")
+	result, err := db.Db.Exec(
+		`INSERT INTO auth_accounts(uid, account_name, cookies) VALUES(?, ?, ?)`,
+		"1001",
+		"账号A",
+		"SESSDATA=a;DedeUserID=1001;bili_jct=x",
+	)
+	if err != nil {
+		t.Fatalf("insert auth account failed: %v", err)
+	}
+	accountID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("read auth account id failed: %v", err)
+	}
+
+	svc := NewService(db, nil)
+	if err := svc.UpdateScrapyTaskConfig(1, accountID, 0.1); err != nil {
+		t.Fatalf("UpdateScrapyTaskConfig error: %v", err)
+	}
+
+	item, err := db.ReadScrapyItem(1)
+	if err != nil {
+		t.Fatalf("ReadScrapyItem error: %v", err)
+	}
+	if item.AccountID != accountID {
+		t.Fatalf("expected account id %d, got %d", accountID, item.AccountID)
+	}
+	if item.RequestIntervalSec != 0.1 {
+		t.Fatalf("expected interval 0.1, got %v", item.RequestIntervalSec)
+	}
 }
 
 func TestServiceCountsCompletedRoundsInsteadOfChangedRows(t *testing.T) {
@@ -543,9 +601,9 @@ func insertScrapyTask(t *testing.T, db *dao.Database, id int, product string) {
 	_, err := db.Db.Exec(
 		`INSERT INTO scrapy_items(
 			id, price_filter, price_filter_label, discount_filter, discount_filter_label,
-			product, product_name, nums, increase_number, next_token, create_time, "order"
-		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, "", "不限", "", "不限", product, product, 0, 0, next, now, "TIME_DESC",
+			product, product_name, account_id, request_interval_seconds, nums, increase_number, next_token, create_time, "order"
+		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, "", "不限", "", "不限", product, product, 0, 0, 0, 0, next, now, "TIME_DESC",
 	)
 	if err != nil {
 		t.Fatalf("insert scrapy task failed: %v", err)
@@ -592,6 +650,8 @@ CREATE TABLE scrapy_items
     discount_filter_label TEXT NOT NULL,
     product               TEXT NOT NULL,
     product_name          TEXT NOT NULL,
+    account_id            INTEGER NOT NULL DEFAULT 0,
+    request_interval_seconds REAL NOT NULL DEFAULT 3,
     nums                  INTEGER,
     increase_number       INTEGER,
     next_token            TEXT,
@@ -674,6 +734,16 @@ CREATE TABLE monitor_alert_events
     status        TEXT    NOT NULL,
     error_message TEXT    NOT NULL DEFAULT '',
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE auth_accounts
+(
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid          TEXT NOT NULL UNIQUE,
+    account_name TEXT NOT NULL DEFAULT '',
+    cookies      TEXT NOT NULL DEFAULT '',
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );`
 
 func TestBuildDingTalkMarkdownHasTitleLinkAndPrice(t *testing.T) {

@@ -5,9 +5,13 @@ import {auth} from '../models';
 import {scrapy} from '../models';
 import {catalog} from '../models';
 
+export function ClearAllLoginAccounts():Promise<void>;
+
 export function ClearSharedLoginSession():Promise<void>;
 
 export function CreateScrapyItem(arg1:dao.ScrapyItem):Promise<number>;
+
+export function DeleteLoginAccount(arg1:number):Promise<void>;
 
 export function DeleteScrapyItem(arg1:number):Promise<void>;
 
@@ -27,11 +31,17 @@ export function GetRunningTaskIds():Promise<Array<number>>;
 
 export function GetSharedLoginSession():Promise<auth.SharedLoginSession>;
 
+export function HasRunningTasks():Promise<boolean>;
+
 export function Initialize():Promise<void>;
+
+export function IsAnyTaskRunningWithAccount(arg1:number):Promise<boolean>;
 
 export function ListC2CItem(arg1:number,arg2:number,arg3:string,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number):Promise<catalog.C2CItemGroupListVO>;
 
 export function ListC2CItemDetailBySku(arg1:number,arg2:number,arg3:number,arg4:number,arg5:string,arg6:string):Promise<catalog.C2CItemDetailListVO>;
+
+export function ListLoginAccounts():Promise<Array<auth.LoginAccount>>;
 
 export function ListMonitorRuleHits(arg1:number):Promise<Array<scrapy.MonitorHitGroup>>;
 
@@ -44,5 +54,7 @@ export function SaveMonitorConfig(arg1:scrapy.MonitorConfig):Promise<void>;
 export function StartTask(arg1:number,arg2:string):Promise<void>;
 
 export function SubscribeEvents(arg1:number):Promise<any>;
+
+export function UpdateScrapyTaskConfig(arg1:number,arg2:number,arg3:number):Promise<void>;
 
 export function VerifyLogin(arg1:string):Promise<auth.VerifyLoginResponse>;

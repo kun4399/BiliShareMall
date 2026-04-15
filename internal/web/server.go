@@ -31,6 +31,9 @@ type AppAPI interface {
 	VerifyLogin(loginKey string) appcore.VerifyLoginResponse
 	GetSharedLoginSession() appcore.SharedLoginSession
 	ClearSharedLoginSession() error
+	ListLoginAccounts() []appcore.LoginAccount
+	DeleteLoginAccount(id int64) error
+	ClearAllLoginAccounts() error
 	ResolveLoginCookie(cookieHeader string) string
 	ListC2CItem(page, pageSize int, filterName string, sortOption int, startTime, endTime int64, fromPrice, toPrice int) (appcore.C2CItemGroupListVO, error)
 	GetC2CItemNameBySku(skuID int64) (string, error)
@@ -38,6 +41,7 @@ type AppAPI interface {
 	ReadAllScrapyItems() []dao.ScrapyItem
 	DeleteScrapyItem(id int) error
 	CreateScrapyItem(item dao.ScrapyItem) int64
+	UpdateScrapyTaskConfig(taskID int, accountID int64, requestIntervalSeconds float64) error
 	StartTask(taskID int, cookies string) error
 	DoneTask(taskID int) error
 	GetRunningTaskIds() []int
@@ -99,12 +103,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/auth/poll", s.handleLoginPoll)
 	mux.HandleFunc("GET /api/auth/session", s.handleLoginSession)
 	mux.HandleFunc("DELETE /api/auth/session", s.handleClearLoginSession)
+	mux.HandleFunc("GET /api/auth/accounts", s.handleListLoginAccounts)
+	mux.HandleFunc("DELETE /api/auth/accounts/{id}", s.handleDeleteLoginAccount)
+	mux.HandleFunc("DELETE /api/auth/accounts", s.handleClearAllLoginAccounts)
 	mux.HandleFunc("GET /api/catalog/items", s.handleCatalogItems)
 	mux.HandleFunc("GET /api/catalog/items/{skuId}", s.handleCatalogItemDetail)
 	mux.HandleFunc("GET /api/catalog/sku/{skuId}/name", s.handleCatalogSkuName)
 	mux.HandleFunc("GET /api/assets/image", s.handleImageProxy)
 	mux.HandleFunc("GET /api/scrapy/tasks", s.handleListScrapyTasks)
 	mux.HandleFunc("POST /api/scrapy/tasks", s.handleCreateScrapyTask)
+	mux.HandleFunc("PUT /api/scrapy/tasks/{id}/config", s.handleUpdateScrapyTaskConfig)
 	mux.HandleFunc("DELETE /api/scrapy/tasks/{id}", s.handleDeleteScrapyTask)
 	mux.HandleFunc("POST /api/scrapy/tasks/{id}/start", s.handleStartScrapyTask)
 	mux.HandleFunc("POST /api/scrapy/tasks/{id}/stop", s.handleStopScrapyTask)
@@ -139,6 +147,31 @@ func (s *Server) handleLoginSession(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) handleClearLoginSession(w http.ResponseWriter, _ *http.Request) {
 	if err := s.api.ClearSharedLoginSession(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleListLoginAccounts(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.api.ListLoginAccounts())
+}
+
+func (s *Server) handleDeleteLoginAccount(w http.ResponseWriter, r *http.Request) {
+	accountID, err := pathInt64(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.api.DeleteLoginAccount(accountID); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleClearAllLoginAccounts(w http.ResponseWriter, _ *http.Request) {
+	if err := s.api.ClearAllLoginAccounts(); err != nil {
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -312,6 +345,33 @@ func (s *Server) handleCreateScrapyTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+func (s *Server) handleUpdateScrapyTaskConfig(w http.ResponseWriter, r *http.Request) {
+	taskID, err := pathInt(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	var payload struct {
+		AccountID              int64   `json:"accountId"`
+		RequestIntervalSeconds float64 `json:"requestIntervalSeconds"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if payload.RequestIntervalSeconds < 0 {
+		writeError(w, http.StatusBadRequest, errors.New("requestIntervalSeconds must be >= 0"))
+		return
+	}
+
+	if err := s.api.UpdateScrapyTaskConfig(taskID, payload.AccountID, payload.RequestIntervalSeconds); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteScrapyTask(w http.ResponseWriter, r *http.Request) {
