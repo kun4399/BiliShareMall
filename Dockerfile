@@ -2,14 +2,15 @@ FROM --platform=$BUILDPLATFORM node:20-bookworm AS frontend-builder
 
 WORKDIR /src/frontend
 
-RUN corepack enable
+RUN corepack enable \
+    && corepack prepare pnpm@9.12.3 --activate
 
 COPY frontend ./ 
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm build
 
-FROM --platform=$TARGETPLATFORM golang:1.23-bookworm AS web-builder
+FROM golang:1.23-bookworm AS web-builder
 
 WORKDIR /src
 
@@ -25,7 +26,7 @@ COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
 
 RUN CGO_ENABLED=1 go build -tags fts5 -o /out/BiliShareMallWeb ./cmd/web
 
-FROM --platform=$TARGETPLATFORM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 
 ARG DEBIAN_FRONTEND=noninteractive
 
