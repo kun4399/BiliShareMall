@@ -45,10 +45,10 @@ export const themeSettings: App.Theme.ThemeSetting = {
     mixChildMenuWidth: 200
   },
   footer: {
-    visible: true,
+    visible: false,
     fixed: false,
-    height: 48,
-    right: true
+    height: 0,
+    right: false
   },
   watermark: {
     visible: false,
@@ -93,5 +93,11 @@ export const overrideThemeSettings: Partial<App.Theme.ThemeSetting> = {
     mode: 'horizontal',
     scrollMode: 'content',
     reverseHorizontalMix: false
+  },
+  footer: {
+    visible: false,
+    fixed: false,
+    height: 0,
+    right: false
   }
 };

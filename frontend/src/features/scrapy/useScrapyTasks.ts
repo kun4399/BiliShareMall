@@ -330,10 +330,14 @@ export function useScrapyTasks() {
     setupEvents();
     window.addEventListener('bsm-login-accounts-updated', onAccountsUpdated);
     loadingBar.start();
-    await loadLoginAccounts();
-    await loadRuntimeConfig();
-    scrapyList.value = await getAllItems();
-    runningTaskIds.value = await GetRunningTaskIds();
+    const [items, runningIds] = await Promise.all([
+      getAllItems(),
+      GetRunningTaskIds(),
+      loadLoginAccounts(),
+      loadRuntimeConfig()
+    ]);
+    scrapyList.value = items;
+    runningTaskIds.value = runningIds;
     taskStateMap.value = createTaskUiStateMap(runningTaskIds.value);
     loadingBar.finish();
   });

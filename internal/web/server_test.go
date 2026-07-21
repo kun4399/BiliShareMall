@@ -2,6 +2,7 @@ package web
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -338,6 +339,49 @@ func TestSPAHandlerFallsBackToIndex(t *testing.T) {
 	}
 }
 
+func TestSPAHandlerCompressesStaticResponse(t *testing.T) {
+	server := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if got := recorder.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("expected gzip response, got %q", got)
+	}
+	reader, err := gzip.NewReader(recorder.Body)
+	if err != nil {
+		t.Fatalf("create gzip reader: %v", err)
+	}
+	defer reader.Close()
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read gzip body: %v", err)
+	}
+	if !strings.Contains(string(body), "<html>") {
+		t.Fatalf("unexpected decompressed body: %s", body)
+	}
+}
+
+func TestSPAHandlerCachesHashedAssets(t *testing.T) {
+	root := newStaticRoot(t)
+	assetsDir := filepath.Join(root, "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatalf("create assets directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "app-hash.js"), []byte("console.log('ok')"), 0o644); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+	server := NewServer(&stubAPI{bus: events.NewBus()}, root)
+	req := httptest.NewRequest(http.MethodGet, "/assets/app-hash.js", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if got := recorder.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
+		t.Fatalf("expected immutable cache header, got %q", got)
+	}
+}
+
 func TestCatalogSkuNameEndpoint(t *testing.T) {
 	server := newTestServer(t)
 
@@ -454,6 +498,9 @@ func TestImageProxyStreamsAllowedImage(t *testing.T) {
 	}
 	if got := recorder.Header().Get("Content-Type"); got != "image/png" {
 		t.Fatalf("unexpected content type: %s", got)
+	}
+	if got := recorder.Header().Get("Cache-Control"); !strings.Contains(got, "max-age=604800") {
+		t.Fatalf("unexpected cache control: %s", got)
 	}
 }
 

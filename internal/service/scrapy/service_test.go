@@ -115,7 +115,11 @@ func TestServiceRetriesRequestErrorAndKeepsRunning(t *testing.T) {
 
 	var countMu sync.Mutex
 	callCount := 0
+	factoryCalls := 0
 	svc.marketFn = func() (marketClient, error) {
+		countMu.Lock()
+		factoryCalls++
+		countMu.Unlock()
 		return &mockMarketClient{
 			fn: func(_ context.Context, _ bilihttp.MarketListRequest) (domain.MailListResponse, error) {
 				countMu.Lock()
@@ -147,6 +151,11 @@ func TestServiceRetriesRequestErrorAndKeepsRunning(t *testing.T) {
 
 	if err := svc.DoneTask(1); err != nil {
 		t.Fatalf("DoneTask error: %v", err)
+	}
+	countMu.Lock()
+	defer countMu.Unlock()
+	if factoryCalls != 1 {
+		t.Fatalf("expected one market client per running task, got %d", factoryCalls)
 	}
 }
 

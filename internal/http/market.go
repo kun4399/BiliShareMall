@@ -58,8 +58,14 @@ func DefaultMarketRuntimeConfig() domain.MarketRuntimeConfig {
 
 func (c *BiliClient) marketHeaders(session *BiliSession, referer string) map[string]string {
 	headers := map[string]string{
-		"Origin":  "https://mall.bilibili.com",
-		"Referer": referer,
+		"Origin":           "https://mall.bilibili.com",
+		"Referer":          referer,
+		"Cache-Control":    "no-cache",
+		"Pragma":           "no-cache",
+		"Sec-Fetch-Dest":   "empty",
+		"Sec-Fetch-Mode":   "cors",
+		"Sec-Fetch-Site":   "same-origin",
+		"X-Requested-With": "XMLHttpRequest",
 	}
 	if session != nil && session.CookieHeader() != "" {
 		headers["Cookie"] = session.CookieHeader()

@@ -34,7 +34,7 @@ func classifyMarketError(code int, message string) error {
 		return nil
 	case 429:
 		return &APIError{Kind: ErrKindRateLimited, Code: code, Message: message}
-	case 83001002:
+	case 71102072, 83001002:
 		return &APIError{Kind: ErrKindUnauthorized, Code: code, Message: message}
 	case 83000004:
 		return &APIError{Kind: ErrKindService, Code: code, Message: message}

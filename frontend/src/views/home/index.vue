@@ -25,8 +25,14 @@ const {
   <div class="catalog-page">
     <NCard class="filter-card" title="数据库">
       <template #header-extra>
-        <NSpace size="large">
-        <NInput v-model:value="searchText" clearable :placeholder="$t('common.keywordSearch')" @keyup.enter="search(true)">
+        <NSpace class="catalog-actions" size="medium" :wrap="true">
+          <NInput
+            v-model:value="searchText"
+            class="catalog-actions__search"
+            clearable
+            :placeholder="$t('common.keywordSearch')"
+            @keyup.enter="search(true)"
+          >
             <template #prefix>
               <icon-uil-search class="text-15px text-#c2c2c2" />
             </template>
@@ -135,10 +141,16 @@ const {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  width: min(100%, 1680px);
+  margin: 0 auto;
 }
 
 .filter-card {
-  border-radius: 20px;
+  border-radius: 8px;
+}
+
+.catalog-actions__search {
+  width: min(320px, 32vw);
 }
 
 .catalog-grid {
@@ -152,13 +164,11 @@ const {
   flex-direction: column;
   gap: 14px;
   border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 24px;
+  border-radius: 8px;
   padding: 14px;
   text-align: left;
-  background:
-    radial-gradient(circle at top left, rgba(14, 165, 233, 0.14), transparent 42%),
-    linear-gradient(180deg, #fffdf8 0%, #ffffff 100%);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+  background: rgb(var(--container-bg-color));
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.07);
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease,
@@ -174,7 +184,7 @@ const {
 .catalog-card__image-shell {
   position: relative;
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: 6px;
   aspect-ratio: 1 / 1;
   background:
     linear-gradient(135deg, rgba(2, 132, 199, 0.12), rgba(249, 115, 22, 0.16)),
@@ -205,20 +215,18 @@ const {
   font-size: 15px;
   font-weight: 700;
   line-height: 1.5;
-  color: #0f172a;
+  color: rgb(var(--base-text-color));
 }
 
 .catalog-card__meta {
   margin: 0;
   font-size: 12px;
   line-height: 1.4;
-  color: #64748b;
+  color: color-mix(in srgb, rgb(var(--base-text-color)) 68%, transparent);
 }
 
 .catalog-empty {
   padding: 48px 0;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.9);
 }
 
 .catalog-footer {
@@ -230,14 +238,55 @@ const {
 }
 
 .catalog-footer__summary {
-  color: #475569;
+  color: color-mix(in srgb, rgb(var(--base-text-color)) 72%, transparent);
   font-size: 13px;
 }
 
 @media (max-width: 768px) {
+  .catalog-page {
+    gap: 12px;
+  }
+
+  .filter-card :deep(.n-card-header) {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .filter-card :deep(.n-card-header__extra) {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .catalog-actions,
+  .catalog-actions__search {
+    width: 100%;
+  }
+
+  .catalog-actions :deep(> div:first-child) {
+    flex: 0 0 100%;
+    width: 100%;
+  }
+
+  .catalog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .catalog-card {
+    gap: 10px;
+    padding: 10px;
+  }
+
   .catalog-footer {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+@media (max-width: 420px) {
+  .catalog-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

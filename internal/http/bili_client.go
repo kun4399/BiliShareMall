@@ -8,6 +8,7 @@ import (
 	"io"
 	nethttp "net/http"
 	neturl "net/url"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -27,9 +28,10 @@ const defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 
 func NewBiliClient() (*BiliClient, error) {
 	headers := map[string]string{
-		"Content-Type": "application/json",
-		"Accept":       "application/json, text/plain, */*",
-		"User-Agent":   defaultUserAgent,
+		"Content-Type":    "application/json",
+		"Accept":          "application/json, text/plain, */*",
+		"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+		"User-Agent":      defaultUserAgent,
 	}
 	transport := &HeaderTransport{
 		headers: headers,
@@ -113,11 +115,38 @@ func (c *BiliClient) DoJSON(
 	if respObjRef == nil {
 		return nil
 	}
+	if res.StatusCode < nethttp.StatusOK || res.StatusCode >= nethttp.StatusMultipleChoices {
+		return fmt.Errorf("request returned HTTP %d: %s", res.StatusCode, responseSnippet(resp))
+	}
+	trimmed := strings.TrimSpace(string(resp))
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(res.Header.Get("Content-Type"), ";")[0]))
+	if strings.HasPrefix(trimmed, "<") || contentType == "text/html" || contentType == "application/xhtml+xml" {
+		log.Warn().
+			Int("status", res.StatusCode).
+			Str("contentType", contentType).
+			Str("text", responseSnippet(resp)).
+			Msg("upstream returned non-JSON response")
+		return fmt.Errorf(
+			"failed to decode response: upstream returned non-JSON content (status %d, content-type %q): %s",
+			res.StatusCode,
+			contentType,
+			responseSnippet(resp),
+		)
+	}
 	if err = json.Unmarshal(resp, respObjRef); err != nil {
-		log.Error().Str("text", string(resp)).Msg("error response text")
-		return fmt.Errorf("failed to decode response: %w", err)
+		log.Error().Str("text", responseSnippet(resp)).Msg("error response text")
+		return fmt.Errorf("failed to decode response: %w (body: %s)", err, responseSnippet(resp))
 	}
 	return nil
+}
+
+func responseSnippet(body []byte) string {
+	const maxLength = 300
+	text := strings.TrimSpace(string(body))
+	if len(text) <= maxLength {
+		return text
+	}
+	return text[:maxLength] + "..."
 }
 
 func (c *BiliClient) StoreHeader(key, value string) {

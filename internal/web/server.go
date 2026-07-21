@@ -1,6 +1,7 @@
 package web
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -124,7 +125,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 	mux.Handle("/", s.handleSPA())
 
-	return withLogging(mux)
+	return withLogging(withStaticCompression(mux))
 }
 
 func (s *Server) handleLoginQR(w http.ResponseWriter, _ *http.Request) {
@@ -323,7 +324,7 @@ func (s *Server) handleImageProxy(w http.ResponseWriter, r *http.Request) {
 	if contentType := strings.TrimSpace(resp.Header.Get("Content-Type")); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, resp.Body)
 }
@@ -507,16 +508,61 @@ func (s *Server) handleSPA() http.Handler {
 
 		cleaned := strings.TrimPrefix(filepath.Clean(r.URL.Path), "/")
 		if cleaned == "." || cleaned == "" {
+			w.Header().Set("Cache-Control", "no-cache")
 			http.ServeFile(w, r, filepath.Join(s.staticRoot, "index.html"))
 			return
 		}
 
 		if fileExists(staticFS, cleaned) {
+			if strings.HasPrefix(cleaned, "assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				w.Header().Set("Cache-Control", "public, max-age=3600")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, filepath.Join(s.staticRoot, "index.html"))
+	})
+}
+
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	writer *gzip.Writer
+}
+
+func (w *gzipResponseWriter) WriteHeader(status int) {
+	w.Header().Del("Content-Length")
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *gzipResponseWriter) Write(body []byte) (int, error) {
+	w.Header().Del("Content-Length")
+	if w.writer == nil {
+		w.writer = gzip.NewWriter(w.ResponseWriter)
+	}
+	return w.writer.Write(body)
+}
+
+func withStaticCompression(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet ||
+			strings.HasPrefix(r.URL.Path, "/api/") ||
+			!strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") ||
+			r.Header.Get("Range") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+		wrapped := &gzipResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(wrapped, r)
+		if wrapped.writer != nil {
+			_ = wrapped.writer.Close()
+		}
 	})
 }
 

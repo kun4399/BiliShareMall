@@ -314,7 +314,9 @@ func (s *Service) GetMarketRuntimeConfig(cookieStr string) MarketRuntimeConfig {
 		return toRuntimeConfig(bilihttp.DefaultMarketRuntimeConfig())
 	}
 
-	config, err := client.GetMarketRuntimeConfig(context.Background(), bilihttp.ParseBiliSession(cookieStr))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	config, err := client.GetMarketRuntimeConfig(ctx, bilihttp.ParseBiliSession(cookieStr))
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to load remote market config, using fallback")
 		fallback := bilihttp.DefaultMarketRuntimeConfig()
@@ -402,13 +404,20 @@ func (s *Service) scrapyLoop(taskID int, cookies string, requestInterval time.Du
 	}
 
 	scrapyItem.NextToken = normalizeNextToken(scrapyItem.NextToken)
+	client, err := s.marketFn()
+	if err != nil {
+		log.Error().Err(err).Int("taskID", taskID).Msg("failed to create market client")
+		s.emitEvent("scrapy_failed", taskID)
+		return
+	}
+	session := bilihttp.ParseBiliSession(cookies)
 	for {
 		if ctx.Err() != nil {
 			log.Info().Int("taskID", taskID).Msg("scrapy task canceled")
 			return
 		}
 
-		roundFinished, err := s.scrapyTask(taskID, cookies, &scrapyItem)
+		roundFinished, err := s.scrapyTaskWithClient(ctx, taskID, client, session, &scrapyItem)
 		if err != nil {
 			var retryErr *requestRetryableError
 			if errors.As(err, &retryErr) {
@@ -461,9 +470,11 @@ func (s *Service) scrapyTask(taskID int, cookies string, item *dao.ScrapyItem) (
 	if err != nil {
 		return false, err
 	}
+	return s.scrapyTaskWithClient(context.Background(), taskID, client, bilihttp.ParseBiliSession(cookies), item)
+}
 
-	session := bilihttp.ParseBiliSession(cookies)
-	resp, err := client.ListMarketItems(context.Background(), session, bilihttp.MarketListRequest{
+func (s *Service) scrapyTaskWithClient(ctx context.Context, taskID int, client marketClient, session *bilihttp.BiliSession, item *dao.ScrapyItem) (bool, error) {
+	resp, err := client.ListMarketItems(ctx, session, bilihttp.MarketListRequest{
 		SortType:        item.Order,
 		NextID:          normalizeNextToken(item.NextToken),
 		PriceFilters:    []string{item.PriceFilter},
