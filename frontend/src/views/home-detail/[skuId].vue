@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowBack, Search } from '@vicons/ionicons5';
-import { normalizeImage } from '@/features/catalog/shared';
+import { fallbackToImageProxy, normalizeImage } from '@/features/catalog/shared';
 import { useCatalogDetail } from '@/features/catalog/useCatalogDetail';
 
 const {
@@ -34,7 +34,10 @@ const {
           v-if="detail?.detailImg && normalizeImage(detail.detailImg)"
           :src="normalizeImage(detail.detailImg)"
           :alt="detail.c2cItemsName"
+          decoding="async"
+          referrerpolicy="no-referrer"
           class="detail-hero__image"
+          @error="event => fallbackToImageProxy(event, detail?.detailImg || '')"
         />
         <div v-else class="detail-hero__fallback">
           <SvgIcon icon="mdi:image-filter-hdr" class="text-34px text-#94a3b8" />
@@ -44,7 +47,9 @@ const {
       <div class="detail-hero__content">
         <p class="detail-hero__eyebrow">SKU #{{ skuId }}</p>
         <h1 class="detail-hero__title">{{ detail?.c2cItemsName || '商品详情' }}</h1>
-        <p class="detail-hero__desc">这里展示当前 skuId 下已采集到的所有发布商品，并在打开页面时实时校验状态。</p>
+        <p class="detail-hero__desc">
+          这里展示当前 skuId 下已采集到的所有发布商品；页面会先立即显示记录，再在后台校验并更新状态。
+        </p>
       </div>
     </div>
 

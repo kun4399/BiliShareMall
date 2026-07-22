@@ -1,8 +1,9 @@
 import dayjs from 'dayjs';
 import { NButton, NButtonGroup, NTag, useMessage } from 'naive-ui';
-import { computed, h, onMounted, ref } from 'vue';
+import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { catalog } from '~/wailsjs/go/models';
+import { OnAppEvent } from '@/gateway';
 import { getToken } from '@/store/modules/auth/shared';
 import { copyText } from '@/utils/clipboard';
 import { fetchCatalogDetail } from './api';
@@ -28,6 +29,7 @@ export function useCatalogDetail() {
     showSizePicker: true,
     pageSizes: [10, 20, 50]
   });
+  let unsubscribeStatuses: (() => void) | null = null;
 
   const sortways = ref<SortWay[]>([
     { value: 1, label: '首次抓取时间降序' },
@@ -152,13 +154,15 @@ export function useCatalogDetail() {
     router.push('/home');
   }
 
-  function search(firstPage: boolean = false) {
+  function search(firstPage: boolean = false, showLoading: boolean = true) {
     if (!skuId.value) {
       message.error('缺少 skuId');
       return;
     }
 
-    loading.value = true;
+    if (showLoading) {
+      loading.value = true;
+    }
     const page = firstPage ? 1 : pagination.value.page;
 
     fetchCatalogDetail({
@@ -179,12 +183,25 @@ export function useCatalogDetail() {
         message.error(err?.message || '详情加载失败');
       })
       .finally(() => {
-        loading.value = false;
+        if (showLoading) {
+          loading.value = false;
+        }
       });
   }
 
   onMounted(() => {
+    unsubscribeStatuses = OnAppEvent('catalog_statuses_changed', payload => {
+      const changedSkuId = Number((payload as { skuId?: number } | null)?.skuId || 0);
+      if (changedSkuId === skuId.value) {
+        search(false, false);
+      }
+    });
     search();
+  });
+
+  onBeforeUnmount(() => {
+    unsubscribeStatuses?.();
+    unsubscribeStatuses = null;
   });
 
   return {

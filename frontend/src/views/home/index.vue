@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Search } from '@vicons/ionicons5';
-import { normalizeImage, resolveReferencePriceLabel } from '@/features/catalog/shared';
+import { fallbackToImageProxy, normalizeImage, resolveReferencePriceLabel } from '@/features/catalog/shared';
 import { useCatalogList } from '@/features/catalog/useCatalogList';
 
 const {
@@ -101,7 +101,11 @@ const {
               v-if="normalizeImage(item.detailImg)"
               :src="normalizeImage(item.detailImg)"
               :alt="item.c2cItemsName"
+              loading="lazy"
+              decoding="async"
+              referrerpolicy="no-referrer"
               class="catalog-card__image"
+              @error="event => fallbackToImageProxy(event, item.detailImg)"
             />
             <div v-else class="catalog-card__fallback">
               <SvgIcon icon="mdi:image-off-outline" class="text-26px text-#8f9aa8" />

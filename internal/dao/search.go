@@ -49,7 +49,14 @@ func (d *Database) ReadC2CItemGroups(page, pageSize int, filterName string, sort
 		SELECT
 			grouped.sku_id,
 			grouped.c2c_items_name,
-			COALESCE(rep.detail_img, '') AS detail_img,
+			COALESCE((
+				SELECT rep.detail_img
+				FROM c2c_items rep
+				WHERE rep.sku_id = grouped.sku_id
+				  AND TRIM(COALESCE(rep.detail_img, '')) != ''
+				ORDER BY rep.publish_time DESC, rep.updated_at DESC, rep.c2c_items_id DESC
+				LIMIT 1
+			), '') AS detail_img,
 			grouped.item_count,
 			grouped.min_price,
 			COALESCE(grouped.reference_price_min, 0) AS reference_price_min,
@@ -57,17 +64,6 @@ func (d *Database) ReadC2CItemGroups(page, pageSize int, filterName string, sort
 			grouped.first_seen_time,
 			grouped.latest_publish_time
 		FROM grouped
-		LEFT JOIN c2c_items rep ON rep.c2c_items_id = (
-			SELECT c2c_items_id
-			FROM c2c_items rep2
-			WHERE rep2.sku_id = grouped.sku_id
-			ORDER BY
-				CASE WHEN COALESCE(rep2.detail_img, '') != '' THEN 0 ELSE 1 END,
-				COALESCE(rep2.publish_time, 0) DESC,
-				rep2.updated_at DESC,
-				rep2.c2c_items_id DESC
-			LIMIT 1
-		)
 	`
 	countQuery := `SELECT COUNT(*) FROM grouped`
 
@@ -115,6 +111,49 @@ func (d *Database) ReadC2CItemGroups(page, pageSize int, filterName string, sort
 	}
 
 	return items, totalCount, nil
+}
+
+func (d *Database) EnsureCatalogIndexes() error {
+	indexes := []struct {
+		columns   []string
+		statement string
+	}{
+		{
+			columns: []string{"sku_id", "publish_time", "updated_at", "c2c_items_id"},
+			statement: `CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_publish
+				ON c2c_items(sku_id, publish_time DESC, updated_at DESC, c2c_items_id DESC)`,
+		},
+		{
+			columns: []string{"sku_id", "created_at", "c2c_items_id"},
+			statement: `CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_created
+				ON c2c_items(sku_id, created_at DESC, c2c_items_id DESC)`,
+		},
+		{
+			columns: []string{"sku_id", "normalized_status", "created_at", "c2c_items_id"},
+			statement: `CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_status_created
+				ON c2c_items(sku_id, normalized_status, created_at DESC, c2c_items_id DESC)`,
+		},
+	}
+	for _, index := range indexes {
+		available := true
+		for _, column := range index.columns {
+			exists, err := tableColumnExists(d.Db, "c2c_items", column)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				available = false
+				break
+			}
+		}
+		if !available {
+			continue
+		}
+		if _, err := d.Db.ExecContext(context.Background(), index.statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (d *Database) EnsureC2CItemReferencePriceColumn() error {

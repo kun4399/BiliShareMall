@@ -11,12 +11,17 @@ import (
 
 const sqliteBusyTimeoutMillis = 5000
 
+const (
+	sqliteMaxOpenConnections = 8
+	sqliteMaxIdleConnections = 4
+)
+
 type Database struct {
 	Db *sql.DB
 }
 
 func NewDatabase(dbPath string) (*Database, error) {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite3", sqliteConnectionString(dbPath))
 	if err != nil {
 		return nil, err
 	}
@@ -30,8 +35,11 @@ func NewDatabase(dbPath string) (*Database, error) {
 func configureSQLite(db *sql.DB) error {
 	ctx := context.Background()
 
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	// WAL allows readers to keep serving the web UI while crawler writes are in
+	// progress. A single connection defeats that property because database/sql
+	// queues every operation behind the connection currently in use.
+	db.SetMaxOpenConns(sqliteMaxOpenConnections)
+	db.SetMaxIdleConns(sqliteMaxIdleConnections)
 	db.SetConnMaxLifetime(0)
 	db.SetConnMaxIdleTime(0)
 
@@ -54,7 +62,20 @@ func configureSQLite(db *sql.DB) error {
 			return fmt.Errorf("enable sqlite wal mode: %w", err)
 		}
 	}
+	if _, err := db.ExecContext(ctx, "PRAGMA synchronous = NORMAL"); err != nil {
+		return fmt.Errorf("set sqlite synchronous mode: %w", err)
+	}
 	return nil
+}
+
+func sqliteConnectionString(dbPath string) string {
+	separator := "?"
+	if strings.Contains(dbPath, "?") {
+		separator = "&"
+	}
+	return dbPath + separator +
+		"_busy_timeout=" + fmt.Sprint(sqliteBusyTimeoutMillis) +
+		"&_foreign_keys=on&_journal_mode=WAL&_synchronous=NORMAL"
 }
 
 func (d *Database) Init(initSql string) error {

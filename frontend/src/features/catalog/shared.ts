@@ -11,14 +11,20 @@ function absoluteImageURL(url: string) {
 }
 
 export function normalizeImage(url: string) {
-  const resolved = absoluteImageURL(url);
-  if (!resolved) {
-    return '';
-  }
+  return absoluteImageURL(url);
+}
+
+export function fallbackToImageProxy(event: Event, url: string) {
   if (resolveAppRuntime() === 'wails') {
-    return resolved;
+    return;
   }
-  return `/api/assets/image?url=${encodeURIComponent(resolved)}`;
+  const resolved = absoluteImageURL(url);
+  const image = event.currentTarget as HTMLImageElement | null;
+  if (!resolved || !image || image.dataset.proxyFallback === 'true') {
+    return;
+  }
+  image.dataset.proxyFallback = 'true';
+  image.src = `/api/assets/image?url=${encodeURIComponent(resolved)}`;
 }
 
 function formatPrice(value: number) {

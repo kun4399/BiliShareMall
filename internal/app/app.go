@@ -22,7 +22,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const DatabaseVersion = 6
+const DatabaseVersion = 7
 
 // App struct
 type App struct {
@@ -92,7 +92,7 @@ func (a *App) Initialize() error {
 	a.bus = events.NewBus()
 	a.c = cache.New(5*time.Minute, 10*time.Minute)
 	a.authService = authsvc.NewService(a.d)
-	a.catalogService = catalogsvc.NewService(a.d, a.c)
+	a.catalogService = catalogsvc.NewService(a.d, a.c, a.bus.Emit)
 	a.scrapyService = scrapysvc.NewService(a.d, a.bus.Emit)
 	initialized = true
 	return nil
@@ -140,6 +140,9 @@ func (a *App) ensureDatabaseSchema(database *dao.Database) error {
 		return err
 	}
 	if err = database.EnsureScrapyItemTaskRuntimeColumns(); err != nil {
+		return err
+	}
+	if err = database.EnsureCatalogIndexes(); err != nil {
 		return err
 	}
 	return nil
@@ -249,7 +252,7 @@ func (a *App) getCatalogService() *catalogsvc.Service {
 		if a.c == nil {
 			a.c = cache.New(5*time.Minute, 10*time.Minute)
 		}
-		a.catalogService = catalogsvc.NewService(a.d, a.c)
+		a.catalogService = catalogsvc.NewService(a.d, a.c, a.bus.Emit)
 	}
 	return a.catalogService
 }

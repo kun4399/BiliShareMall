@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/kun4399/BiliShareMall/internal/dao"
@@ -57,15 +58,44 @@ type C2CItemDetailVO struct {
 }
 
 type Service struct {
-	d *dao.Database
-	c *cache.Cache
+	d                  *dao.Database
+	c                  *cache.Cache
+	emit               EventEmitter
+	statusResolver     StatusResolver
+	statusRefreshSlots chan struct{}
+	statusRefreshMu    sync.Mutex
+	statusRefreshing   map[int64]struct{}
 }
 
-func NewService(database *dao.Database, c *cache.Cache) *Service {
-	return &Service{
-		d: database,
-		c: c,
+type EventEmitter func(eventName string, payload any)
+
+type StatusResolver func(ctx context.Context, item dao.CSCItem, cookieStr string) (string, error)
+
+type StatusesChangedEvent struct {
+	SkuID     int64 `json:"skuId"`
+	UpdatedAt int64 `json:"updatedAt"`
+}
+
+const (
+	statusRefreshMaxAge  = 5 * time.Minute
+	statusRefreshTimeout = 5 * time.Second
+	statusRefreshWorkers = 2
+)
+
+func NewService(database *dao.Database, c *cache.Cache, emitters ...EventEmitter) *Service {
+	var emit EventEmitter
+	if len(emitters) > 0 {
+		emit = emitters[0]
 	}
+	service := &Service{
+		d:                  database,
+		c:                  c,
+		emit:               emit,
+		statusRefreshSlots: make(chan struct{}, statusRefreshWorkers),
+		statusRefreshing:   make(map[int64]struct{}),
+	}
+	service.statusResolver = service.resolveItemStatus
+	return service
 }
 
 func (s *Service) ListC2CItem(page, pageSize int, filterName string, sortOption int, startTime, endTime int64, fromPrice, toPrice int) (ret C2CItemGroupListVO, err error) {
@@ -162,32 +192,10 @@ func (s *Service) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOp
 		return C2CItemDetailListVO{}, err
 	}
 
-	if statusFilter != "" {
-		allItems, readErr := s.d.ReadAllC2CItemDetailsBySku(skuID)
-		if readErr == nil {
-			if _, refreshErr := s.refreshDetailStatuses(allItems, cookieStr, true); refreshErr != nil {
-				log.Warn().Err(refreshErr).Int64("skuId", skuID).Msg("failed to refresh all item statuses for filtered query")
-			}
-		}
-	}
-
 	items, total, err := s.d.ReadC2CItemDetailsBySku(skuID, page, pageSize, sortOption, statusFilter)
 	if err != nil {
 		log.Error().Err(err).Int64("skuId", skuID).Msg("failed to list item details")
 		return C2CItemDetailListVO{}, err
-	}
-
-	if statusFilter == "" {
-		changed, refreshErr := s.refreshDetailStatuses(items, cookieStr, true)
-		if refreshErr != nil {
-			log.Warn().Err(refreshErr).Int64("skuId", skuID).Msg("failed to refresh current page item statuses")
-		}
-		if changed {
-			items, total, err = s.d.ReadC2CItemDetailsBySku(skuID, page, pageSize, sortOption, statusFilter)
-			if err != nil {
-				return C2CItemDetailListVO{}, err
-			}
-		}
 	}
 
 	result := make([]C2CItemDetailVO, 0, len(items))
@@ -206,7 +214,7 @@ func (s *Service) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOp
 		})
 	}
 
-	return C2CItemDetailListVO{
+	response := C2CItemDetailListVO{
 		SkuID:        meta.SkuID,
 		C2CItemsName: meta.C2CItemsName,
 		DetailImg:    meta.DetailImg,
@@ -214,40 +222,78 @@ func (s *Service) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOp
 		Total:        total,
 		TotalPages:   calcTotalPages(total, pageSize),
 		CurrentPage:  page,
-	}, nil
+	}
+
+	// Remote status checks used to run serially on this request path. A page of
+	// ten records could therefore withhold the entire JSON response for minutes
+	// when the upstream was slow. Serve the persisted snapshot immediately and
+	// refresh stale statuses with bounded background workers instead.
+	s.scheduleStatusRefresh(skuID, items, cookieStr)
+
+	return response, nil
 }
 
-func (s *Service) refreshDetailStatuses(items []dao.CSCItem, cookieStr string, forceRefresh bool) (bool, error) {
-	changed := false
-	var firstErr error
+func (s *Service) scheduleStatusRefresh(skuID int64, items []dao.CSCItem, cookieStr string) {
+	now := time.Now()
+	candidates := make([]dao.CSCItem, 0, len(items))
 
+	s.statusRefreshMu.Lock()
 	for _, item := range items {
-		status, err := s.resolveItemStatus(item, cookieStr, forceRefresh)
+		if !item.StatusCheckedAt.IsZero() && now.Sub(item.StatusCheckedAt) < statusRefreshMaxAge {
+			continue
+		}
+		if _, exists := s.statusRefreshing[item.C2CItemsID]; exists {
+			continue
+		}
+		s.statusRefreshing[item.C2CItemsID] = struct{}{}
+		candidates = append(candidates, item)
+	}
+	s.statusRefreshMu.Unlock()
+
+	if len(candidates) == 0 {
+		return
+	}
+
+	go s.refreshStatuses(skuID, candidates, cookieStr)
+}
+
+func (s *Service) refreshStatuses(skuID int64, items []dao.CSCItem, cookieStr string) {
+	s.statusRefreshSlots <- struct{}{}
+	defer func() { <-s.statusRefreshSlots }()
+	defer func() {
+		s.statusRefreshMu.Lock()
+		for _, item := range items {
+			delete(s.statusRefreshing, item.C2CItemsID)
+		}
+		s.statusRefreshMu.Unlock()
+	}()
+
+	changed := false
+	for _, item := range items {
+		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
+		status, err := s.statusResolver(ctx, item, cookieStr)
+		cancel()
 		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
 			log.Warn().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to refresh item status")
 			continue
 		}
-
 		if err := s.d.UpdateC2CItemStatus(item.C2CItemsID, status, time.Now()); err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
 			log.Error().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to update item status")
 			continue
 		}
-		if status != item.NormalizedStatus {
-			changed = true
-		}
+		changed = changed || status != item.NormalizedStatus
 	}
 
-	return changed, firstErr
+	if changed && s.emit != nil {
+		s.emit("catalog_statuses_changed", StatusesChangedEvent{
+			SkuID:     skuID,
+			UpdatedAt: time.Now().UnixMilli(),
+		})
+	}
 }
 
-func (s *Service) resolveItemStatus(item dao.CSCItem, cookieStr string, forceRefresh bool) (string, error) {
-	detailStatus, detailErr := s.checkItemStatusFromDetail(item.C2CItemsID, cookieStr, forceRefresh)
+func (s *Service) resolveItemStatus(ctx context.Context, item dao.CSCItem, cookieStr string) (string, error) {
+	detailStatus, detailErr := s.checkItemStatusFromDetail(ctx, item.C2CItemsID, cookieStr)
 	if detailErr == nil {
 		return detailStatus, nil
 	}
@@ -256,7 +302,7 @@ func (s *Service) resolveItemStatus(item dao.CSCItem, cookieStr string, forceRef
 		return "", detailErr
 	}
 
-	canBuy, fallbackErr := s.checkItemStatus(item.C2CItemsID, item.Price, cookieStr, forceRefresh)
+	canBuy, fallbackErr := s.checkItemStatus(ctx, item.C2CItemsID, item.Price, cookieStr)
 	if fallbackErr == nil {
 		return dao.NormalizeMarketStatus(item.RawStatus, item.RawSaleStatus, &canBuy), nil
 	}
@@ -264,7 +310,7 @@ func (s *Service) resolveItemStatus(item dao.CSCItem, cookieStr string, forceRef
 	return "", fmt.Errorf("detail check failed: %w; fallback check failed: %v", detailErr, fallbackErr)
 }
 
-func (s *Service) checkItemStatusFromDetail(id int64, cookieStr string, forceRefresh bool) (string, error) {
+func (s *Service) checkItemStatusFromDetail(ctx context.Context, id int64, cookieStr string) (string, error) {
 	cacheStore := s.c
 	if cacheStore == nil {
 		cacheStore = cache.New(5*time.Minute, 10*time.Minute)
@@ -272,14 +318,6 @@ func (s *Service) checkItemStatusFromDetail(id int64, cookieStr string, forceRef
 	}
 
 	cacheKey := fmt.Sprintf("detail-status:%d", id)
-	if !forceRefresh {
-		if result, found := cacheStore.Get(cacheKey); found {
-			return result.(string), nil
-		}
-	} else {
-		cacheStore.Delete(cacheKey)
-	}
-
 	if result, found := cacheStore.Get(cacheKey); found {
 		return result.(string), nil
 	}
@@ -290,7 +328,7 @@ func (s *Service) checkItemStatusFromDetail(id int64, cookieStr string, forceRef
 	}
 
 	session := bilihttp.ParseBiliSession(cookieStr)
-	resp, err := client.QueryC2CItemDetail(context.Background(), session, id)
+	resp, err := client.QueryC2CItemDetail(ctx, session, id)
 	if err != nil {
 		return "", err
 	}
@@ -306,7 +344,7 @@ func (s *Service) checkItemStatusFromDetail(id int64, cookieStr string, forceRef
 	return status, nil
 }
 
-func (s *Service) checkItemStatus(id int64, price int, cookieStr string, forceRefresh bool) (bool, error) {
+func (s *Service) checkItemStatus(ctx context.Context, id int64, price int, cookieStr string) (bool, error) {
 	cacheStore := s.c
 	if cacheStore == nil {
 		cacheStore = cache.New(5*time.Minute, 10*time.Minute)
@@ -314,14 +352,6 @@ func (s *Service) checkItemStatus(id int64, price int, cookieStr string, forceRe
 	}
 
 	cacheKey := fmt.Sprintf("check:%d:%d", id, price)
-	if !forceRefresh {
-		if result, found := cacheStore.Get(cacheKey); found {
-			return result.(bool), nil
-		}
-	} else {
-		cacheStore.Delete(cacheKey)
-	}
-
 	if result, found := cacheStore.Get(cacheKey); found {
 		return result.(bool), nil
 	}
@@ -331,7 +361,7 @@ func (s *Service) checkItemStatus(id int64, price int, cookieStr string, forceRe
 		return false, err
 	}
 
-	resp, err := client.CheckC2CItem(context.Background(), bilihttp.ParseBiliSession(cookieStr), id, price)
+	resp, err := client.CheckC2CItem(ctx, bilihttp.ParseBiliSession(cookieStr), id, price)
 	if err != nil {
 		var apiErr *bilihttp.APIError
 		if errors.As(err, &apiErr) && isExpectedOrderInfoBusinessCode(apiErr.Code) {

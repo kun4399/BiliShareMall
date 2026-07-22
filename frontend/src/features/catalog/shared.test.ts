@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveReferencePriceLabel } from './shared';
+import { normalizeImage, resolveReferencePriceLabel } from './shared';
+
+test('normalizeImage lets the browser load CDN images directly', () => {
+  assert.equal(normalizeImage('//i0.hdslb.com/test.png'), 'https://i0.hdslb.com/test.png');
+  assert.equal(normalizeImage('https://example.com/test.png'), 'https://example.com/test.png');
+});
 
 test('resolveReferencePriceLabel prefers backend label when present', () => {
   assert.equal(resolveReferencePriceLabel('参考价 109.00 元', 0, 0), '参考价 109.00 元');

@@ -59,6 +59,15 @@ CREATE TABLE IF NOT EXISTS c2c_items
 CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_id
     ON c2c_items(sku_id);
 
+CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_publish
+    ON c2c_items(sku_id, publish_time DESC, updated_at DESC, c2c_items_id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_created
+    ON c2c_items(sku_id, created_at DESC, c2c_items_id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_status_created
+    ON c2c_items(sku_id, normalized_status, created_at DESC, c2c_items_id DESC);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS c2c_fts USING fts5
 (
     c2c_items_name,

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -60,10 +61,21 @@ type Server struct {
 }
 
 func NewServer(api AppAPI, staticRoot string) *Server {
+	imageTransport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 4 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          64,
+		MaxIdleConnsPerHost:   16,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 8 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
 	return &Server{
 		api:        api,
 		staticRoot: staticRoot,
-		imageHTTP:  &http.Client{Timeout: 20 * time.Second},
+		imageHTTP:  &http.Client{Transport: imageTransport, Timeout: 12 * time.Second},
 	}
 }
 
@@ -466,6 +478,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	headers.Set("Content-Type", "text/event-stream")
 	headers.Set("Cache-Control", "no-cache")
 	headers.Set("Connection", "keep-alive")
+	headers.Set("X-Accel-Buffering", "no")
 	_, _ = io.WriteString(w, ": connected\n\n")
 	flusher.Flush()
 
@@ -690,8 +703,12 @@ func isAllowedImageProxyHost(host string) bool {
 
 func ListenAndServe(ctx context.Context, addr string, handler http.Handler) error {
 	server := &http.Server{
-		Addr:    addr,
-		Handler: handler,
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	errCh := make(chan error, 1)

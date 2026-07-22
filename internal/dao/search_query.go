@@ -51,13 +51,13 @@ func buildGroupSort(sortOption int) string {
 func buildDetailSort(sortOption int) string {
 	switch sortOption {
 	case 2:
-		return "ORDER BY COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) ASC, c2c_items_id ASC"
+		return "ORDER BY created_at ASC, c2c_items_id ASC"
 	case 3:
-		return "ORDER BY price ASC, COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) DESC"
+		return "ORDER BY price ASC, created_at DESC, c2c_items_id DESC"
 	case 4:
-		return "ORDER BY price DESC, COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) DESC"
+		return "ORDER BY price DESC, created_at DESC, c2c_items_id DESC"
 	default:
-		return "ORDER BY COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) DESC, c2c_items_id DESC"
+		return "ORDER BY created_at DESC, c2c_items_id DESC"
 	}
 }
 
@@ -105,6 +105,9 @@ func scanCSCItem(scanner interface {
 	if rawSaleStatus.Valid {
 		value := int(rawSaleStatus.Int64)
 		item.RawSaleStatus = &value
+	}
+	if statusCheckedAt.Valid {
+		item.StatusCheckedAt = statusCheckedAt.Time
 	}
 
 	return item, nil

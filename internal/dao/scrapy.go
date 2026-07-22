@@ -258,28 +258,29 @@ func (d *Database) resolveAuthAccountName(accountID int64) string {
 }
 
 type CSCItem struct {
-	C2CItemsID       int64  `json:"c2cItemsId"`
-	Type             int    `json:"type"`
-	C2CItemsName     string `json:"c2cItemsName"`
-	DetailName       string `json:"detailName"`
-	DetailImg        string `json:"detailImg"`
-	SkuID            int64  `json:"skuId"`
-	ItemsID          int64  `json:"itemsId"`
-	ReferencePrice   int    `json:"referencePrice"`
-	TotalItemsCount  int    `json:"totalItemsCount"`
-	Price            int    `json:"price"`
-	ShowPrice        string `json:"showPrice"`
-	ShowMarketPrice  string `json:"showMarketPrice"`
-	SellerUID        string `json:"sellerUid"`
-	SellerName       string `json:"sellerName"`
-	PaymentTime      int64  `json:"paymentTime"`
-	PublishTime      int64  `json:"publishTime"`
-	FirstSeenTime    int64  `json:"firstSeenTime"`
-	IsMyPublish      bool   `json:"isMyPublish"`
-	Uface            string `json:"uface"`
-	RawStatus        *int   `json:"rawStatus,omitempty"`
-	RawSaleStatus    *int   `json:"rawSaleStatus,omitempty"`
-	NormalizedStatus string `json:"normalizedStatus"`
+	C2CItemsID       int64     `json:"c2cItemsId"`
+	Type             int       `json:"type"`
+	C2CItemsName     string    `json:"c2cItemsName"`
+	DetailName       string    `json:"detailName"`
+	DetailImg        string    `json:"detailImg"`
+	SkuID            int64     `json:"skuId"`
+	ItemsID          int64     `json:"itemsId"`
+	ReferencePrice   int       `json:"referencePrice"`
+	TotalItemsCount  int       `json:"totalItemsCount"`
+	Price            int       `json:"price"`
+	ShowPrice        string    `json:"showPrice"`
+	ShowMarketPrice  string    `json:"showMarketPrice"`
+	SellerUID        string    `json:"sellerUid"`
+	SellerName       string    `json:"sellerName"`
+	PaymentTime      int64     `json:"paymentTime"`
+	PublishTime      int64     `json:"publishTime"`
+	FirstSeenTime    int64     `json:"firstSeenTime"`
+	IsMyPublish      bool      `json:"isMyPublish"`
+	Uface            string    `json:"uface"`
+	RawStatus        *int      `json:"rawStatus,omitempty"`
+	RawSaleStatus    *int      `json:"rawSaleStatus,omitempty"`
+	NormalizedStatus string    `json:"normalizedStatus"`
+	StatusCheckedAt  time.Time `json:"-"`
 }
 
 func (d *Database) CreateCSCItem(item *CSCItem) (int64, error) {

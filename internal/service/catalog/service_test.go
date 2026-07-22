@@ -1,9 +1,12 @@
 package catalog
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/kun4399/BiliShareMall/internal/dao"
 	_ "github.com/mattn/go-sqlite3"
@@ -57,6 +60,78 @@ func TestGetC2CItemNameBySkuDoesNotCacheEmptyResults(t *testing.T) {
 	}
 	if name != "新商品名" {
 		t.Fatalf("expected refreshed name %q, got %q", "新商品名", name)
+	}
+}
+
+func TestListC2CItemDetailReturnsBeforeRemoteStatusRefresh(t *testing.T) {
+	database := newCatalogTestDatabase(t)
+	if _, err := database.CreateCSCItem(&dao.CSCItem{
+		C2CItemsID:       1,
+		C2CItemsName:     "测试商品",
+		DetailName:       "测试商品",
+		SkuID:            9001,
+		Price:            12900,
+		ShowPrice:        "129",
+		SellerUID:        "1",
+		SellerName:       "卖家",
+		NormalizedStatus: "在售",
+	}); err != nil {
+		t.Fatalf("insert c2c_items error: %v", err)
+	}
+
+	events := make(chan StatusesChangedEvent, 1)
+	svc := NewService(database, cache.New(cache.NoExpiration, cache.NoExpiration), func(name string, payload any) {
+		if name == "catalog_statuses_changed" {
+			events <- payload.(StatusesChangedEvent)
+		}
+	})
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce sync.Once
+	svc.statusResolver = func(ctx context.Context, item dao.CSCItem, cookieStr string) (string, error) {
+		startedOnce.Do(func() { close(started) })
+		select {
+		case <-release:
+			return "已售出", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+
+	requestStarted := time.Now()
+	result, err := svc.ListC2CItemDetailBySku(9001, 1, 10, 1, "", "")
+	if err != nil {
+		t.Fatalf("ListC2CItemDetailBySku error: %v", err)
+	}
+	if elapsed := time.Since(requestStarted); elapsed > 200*time.Millisecond {
+		t.Fatalf("detail snapshot waited for remote refresh: %s", elapsed)
+	}
+	if len(result.Items) != 1 || result.Items[0].Status != "在售" {
+		t.Fatalf("expected immediate persisted snapshot, got %+v", result.Items)
+	}
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("background status refresh did not start")
+	}
+	close(release)
+
+	select {
+	case event := <-events:
+		if event.SkuID != 9001 {
+			t.Fatalf("expected event for sku 9001, got %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("background status refresh did not publish update")
+	}
+
+	var status string
+	if err := database.Db.QueryRow(`SELECT normalized_status FROM c2c_items WHERE c2c_items_id = 1`).Scan(&status); err != nil {
+		t.Fatalf("read refreshed status error: %v", err)
+	}
+	if status != "已售出" {
+		t.Fatalf("expected refreshed status, got %q", status)
 	}
 }
 
