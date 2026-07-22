@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const safeScrapyRequestIntervalSeconds = 12.0
+
 type ScrapyItem struct {
 	Id                  int64     `json:"id"`
 	AccountID           int64     `json:"accountId"`
@@ -181,7 +183,7 @@ func (d *Database) EnsureScrapyItemTaskRuntimeColumns() error {
 	if !hasRequestInterval {
 		if _, err := d.Db.ExecContext(
 			context.Background(),
-			`ALTER TABLE scrapy_items ADD COLUMN request_interval_seconds REAL NOT NULL DEFAULT 3`,
+			`ALTER TABLE scrapy_items ADD COLUMN request_interval_seconds REAL NOT NULL DEFAULT 12`,
 		); err != nil {
 			return err
 		}
@@ -190,18 +192,15 @@ func (d *Database) EnsureScrapyItemTaskRuntimeColumns() error {
 	_, err = d.Db.ExecContext(
 		context.Background(),
 		`UPDATE scrapy_items
-		SET request_interval_seconds = 3
-		WHERE request_interval_seconds IS NULL OR request_interval_seconds < 0`,
+		SET request_interval_seconds = 12
+		WHERE request_interval_seconds IS NULL OR request_interval_seconds < 12`,
 	)
 	return err
 }
 
 func normalizeRequestIntervalSeconds(seconds float64) float64 {
-	if seconds < 0 {
-		return 3
-	}
-	if seconds == 0 {
-		return 0
+	if seconds < safeScrapyRequestIntervalSeconds {
+		return safeScrapyRequestIntervalSeconds
 	}
 	return normalizeIntervalOneDecimal(seconds)
 }

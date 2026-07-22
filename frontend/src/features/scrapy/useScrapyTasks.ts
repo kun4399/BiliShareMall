@@ -146,7 +146,7 @@ export function useScrapyTasks() {
       product: selectedProduct.value,
       productName: getOptionLabel(productOptions.value, selectedProduct.value),
       accountId: 0,
-      requestIntervalSeconds: 3,
+      requestIntervalSeconds: 12,
       order: selectedOrder.value,
       priceFilter: selectedPriceFilter.value,
       priceFilterLabel: getOptionLabel(priceFilterOptions.value, selectedPriceFilter.value),
@@ -219,8 +219,8 @@ export function useScrapyTasks() {
 
   async function handleSaveTaskConfig(taskID: number, accountID: number, requestIntervalSeconds: number) {
     const normalizedInterval = Number(requestIntervalSeconds.toFixed(1));
-    if (normalizedInterval < 0) {
-      message.warning('间隔不能小于 0');
+    if (normalizedInterval < 12) {
+      message.warning('为避免触发 B 站限流，请求间隔不能小于 12 秒');
       return;
     }
     try {

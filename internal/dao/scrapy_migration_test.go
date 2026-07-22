@@ -68,7 +68,40 @@ INSERT INTO scrapy_items(
 	if err := rawDB.QueryRow(`SELECT request_interval_seconds FROM scrapy_items LIMIT 1`).Scan(&seconds); err != nil {
 		t.Fatalf("query request_interval_seconds error: %v", err)
 	}
-	if seconds != 3 {
-		t.Fatalf("expected default request interval 3, got %v", seconds)
+	if seconds != 12 {
+		t.Fatalf("expected default request interval 12, got %v", seconds)
+	}
+}
+
+func TestEnsureScrapyItemTaskRuntimeColumnsRaisesUnsafeExistingInterval(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "unsafe_interval.db")
+	rawDB, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite error: %v", err)
+	}
+	t.Cleanup(func() { _ = rawDB.Close() })
+
+	if _, err := rawDB.Exec(`
+CREATE TABLE scrapy_items
+(
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id               INTEGER NOT NULL DEFAULT 0,
+    request_interval_seconds REAL NOT NULL DEFAULT 3
+);
+INSERT INTO scrapy_items(account_id, request_interval_seconds) VALUES(1, 3);`); err != nil {
+		t.Fatalf("create current scrapy_items error: %v", err)
+	}
+
+	db := &Database{Db: rawDB}
+	if err := db.EnsureScrapyItemTaskRuntimeColumns(); err != nil {
+		t.Fatalf("EnsureScrapyItemTaskRuntimeColumns error: %v", err)
+	}
+
+	var seconds float64
+	if err := rawDB.QueryRow(`SELECT request_interval_seconds FROM scrapy_items WHERE id = 1`).Scan(&seconds); err != nil {
+		t.Fatalf("query migrated interval error: %v", err)
+	}
+	if seconds != 12 {
+		t.Fatalf("expected unsafe interval migrated to 12, got %v", seconds)
 	}
 }

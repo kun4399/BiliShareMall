@@ -250,13 +250,26 @@ func TestCreateScrapyTaskEndpoint(t *testing.T) {
 func TestUpdateScrapyTaskConfigEndpoint(t *testing.T) {
 	server := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodPut, "/api/scrapy/tasks/42/config", strings.NewReader(`{"accountId":1,"requestIntervalSeconds":0.5}`))
+	req := httptest.NewRequest(http.MethodPut, "/api/scrapy/tasks/42/config", strings.NewReader(`{"accountId":1,"requestIntervalSeconds":12.5}`))
 	req.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, req)
 
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("expected status 204, got %d", recorder.Code)
+	}
+}
+
+func TestUpdateScrapyTaskConfigEndpointRejectsUnsafeInterval(t *testing.T) {
+	server := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/scrapy/tasks/42/config", strings.NewReader(`{"accountId":1,"requestIntervalSeconds":3}`))
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", recorder.Code)
 	}
 }
 

@@ -1,6 +1,10 @@
 package http
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"time"
+)
 
 const (
 	ErrKindUnauthorized = "unauthorized"
@@ -16,6 +20,30 @@ type APIError struct {
 	Message string
 }
 
+// HTTPStatusError preserves status and retry metadata without exposing an
+// upstream HTML error page to callers.
+type HTTPStatusError struct {
+	StatusCode int
+	RetryAfter time.Duration
+	Message    string
+}
+
+func (e *HTTPStatusError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.StatusCode == 429 {
+		if e.RetryAfter > 0 {
+			return fmt.Sprintf("B站请求过于频繁（HTTP 429），建议等待 %s后重试", formatRetryDuration(e.RetryAfter))
+		}
+		return "B站请求过于频繁（HTTP 429），请稍后重试"
+	}
+	if e.Message != "" {
+		return fmt.Sprintf("request returned HTTP %d: %s", e.StatusCode, e.Message)
+	}
+	return fmt.Sprintf("request returned HTTP %d", e.StatusCode)
+}
+
 func (e *APIError) Error() string {
 	if e == nil {
 		return ""
@@ -24,8 +52,35 @@ func (e *APIError) Error() string {
 }
 
 func IsAPIErrorKind(err error, kind string) bool {
-	apiErr, ok := err.(*APIError)
-	return ok && apiErr.Kind == kind
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Kind == kind
+}
+
+func IsRateLimitError(err error) bool {
+	if IsAPIErrorKind(err, ErrKindRateLimited) {
+		return true
+	}
+	var statusErr *HTTPStatusError
+	return errors.As(err, &statusErr) && statusErr.StatusCode == 429
+}
+
+func RetryAfter(err error) time.Duration {
+	var statusErr *HTTPStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.RetryAfter
+	}
+	return 0
+}
+
+func formatRetryDuration(duration time.Duration) string {
+	seconds := int(duration.Round(time.Second).Seconds())
+	if seconds < 1 {
+		seconds = 1
+	}
+	if seconds%60 == 0 {
+		return fmt.Sprintf("%d 分钟", seconds/60)
+	}
+	return fmt.Sprintf("%d 秒", seconds)
 }
 
 func classifyMarketError(code int, message string) error {

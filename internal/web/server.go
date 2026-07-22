@@ -375,8 +375,8 @@ func (s *Server) handleUpdateScrapyTaskConfig(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if payload.RequestIntervalSeconds < 0 {
-		writeError(w, http.StatusBadRequest, errors.New("requestIntervalSeconds must be >= 0"))
+	if payload.RequestIntervalSeconds < 12 {
+		writeError(w, http.StatusBadRequest, errors.New("requestIntervalSeconds must be >= 12"))
 		return
 	}
 

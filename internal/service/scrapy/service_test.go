@@ -159,6 +159,65 @@ func TestServiceRetriesRequestErrorAndKeepsRunning(t *testing.T) {
 	}
 }
 
+func TestServiceUsesLongBackoffForRateLimit(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+	insertScrapyTask(t, db, 1, "sku-a")
+
+	events := make(chan ScrapyRetryEvent, 1)
+	svc := NewService(db, func(eventName string, payload any) {
+		if eventName == "scrapy_retry_wait" {
+			events <- payload.(ScrapyRetryEvent)
+		}
+	})
+	svc.requestInterval = 10 * time.Millisecond
+	svc.notifier = &mockNotifier{}
+	svc.marketFn = func() (marketClient, error) {
+		return &mockMarketClient{
+			fn: func(_ context.Context, _ bilihttp.MarketListRequest) (domain.MailListResponse, error) {
+				return domain.MailListResponse{}, &bilihttp.HTTPStatusError{
+					StatusCode: 429,
+					RetryAfter: 75 * time.Second,
+				}
+			},
+		}, nil
+	}
+
+	if err := svc.StartTask(1, "SESSDATA=a;DedeUserID=1;bili_jct=x"); err != nil {
+		t.Fatalf("StartTask error: %v", err)
+	}
+
+	select {
+	case event := <-events:
+		if event.Seconds != 75 {
+			t.Fatalf("expected 75 second backoff, got %d", event.Seconds)
+		}
+		if strings.Contains(event.Reason, "<html>") {
+			t.Fatalf("retry reason should not contain HTML: %q", event.Reason)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for retry event")
+	}
+
+	if err := svc.DoneTask(1); err != nil {
+		t.Fatalf("DoneTask error: %v", err)
+	}
+	waitUntil(t, 2*time.Second, func() bool {
+		return len(svc.GetRunningTaskIds()) == 0
+	})
+}
+
+func TestRateLimitBackoffDoublesAndCaps(t *testing.T) {
+	if got := rateLimitBackoff(1, 0); got != time.Minute {
+		t.Fatalf("expected 1m, got %s", got)
+	}
+	if got := rateLimitBackoff(3, 0); got != 4*time.Minute {
+		t.Fatalf("expected 4m, got %s", got)
+	}
+	if got := rateLimitBackoff(10, 0); got != maximumRateLimitRetryDelay {
+		t.Fatalf("expected cap %s, got %s", maximumRateLimitRetryDelay, got)
+	}
+}
+
 func TestServiceEmitsRoundFinishedAndRestartsFromFirstPage(t *testing.T) {
 	db := newScrapyTestDatabase(t)
 	insertScrapyTask(t, db, 1, "sku-a")
@@ -354,7 +413,7 @@ func TestServiceUpdateScrapyTaskConfigPersistsDecimalInterval(t *testing.T) {
 	}
 
 	svc := NewService(db, nil)
-	if err := svc.UpdateScrapyTaskConfig(1, accountID, 0.1); err != nil {
+	if err := svc.UpdateScrapyTaskConfig(1, accountID, 12.1); err != nil {
 		t.Fatalf("UpdateScrapyTaskConfig error: %v", err)
 	}
 
@@ -365,8 +424,8 @@ func TestServiceUpdateScrapyTaskConfigPersistsDecimalInterval(t *testing.T) {
 	if item.AccountID != accountID {
 		t.Fatalf("expected account id %d, got %d", accountID, item.AccountID)
 	}
-	if item.RequestIntervalSec != 0.1 {
-		t.Fatalf("expected interval 0.1, got %v", item.RequestIntervalSec)
+	if item.RequestIntervalSec != 12.1 {
+		t.Fatalf("expected interval 12.1, got %v", item.RequestIntervalSec)
 	}
 }
 

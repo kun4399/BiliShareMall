@@ -18,7 +18,10 @@ import (
 
 const (
 	taskRetryDelay                = 10 * time.Second
-	taskRequestInterval           = 3 * time.Second
+	taskRequestInterval           = 12 * time.Second
+	minimumTaskRequestInterval    = 12 * time.Second
+	rateLimitRetryDelay           = 60 * time.Second
+	maximumRateLimitRetryDelay    = 15 * time.Minute
 	taskRestartRoundDelay         = 1 * time.Second
 	defaultMonitorHitLimitPerRule = 20
 
@@ -160,7 +163,7 @@ func (s *Service) CreateScrapyItem(item dao.ScrapyItem) int64 {
 	// Creation flow keeps runtime settings at defaults; users can customize later per task.
 	item.AccountID = 0
 	if item.RequestIntervalSec <= 0 {
-		item.RequestIntervalSec = 3
+		item.RequestIntervalSec = minimumTaskRequestInterval.Seconds()
 	}
 	id, err := s.d.CreateScrapyItem(item)
 	if err != nil {
@@ -222,8 +225,8 @@ func (s *Service) StartTask(taskID int, cookies string) error {
 }
 
 func (s *Service) UpdateScrapyTaskConfig(taskID int, accountID int64, requestIntervalSeconds float64) error {
-	if requestIntervalSeconds < 0 {
-		return fmt.Errorf("request interval must be >= 0")
+	if requestIntervalSeconds < minimumTaskRequestInterval.Seconds() {
+		return fmt.Errorf("request interval must be at least %.0f seconds", minimumTaskRequestInterval.Seconds())
 	}
 	if s.isTaskRunning(taskID) {
 		return fmt.Errorf("task is running, stop it first")
@@ -411,6 +414,7 @@ func (s *Service) scrapyLoop(taskID int, cookies string, requestInterval time.Du
 		return
 	}
 	session := bilihttp.ParseBiliSession(cookies)
+	consecutiveRateLimits := 0
 	for {
 		if ctx.Err() != nil {
 			log.Info().Int("taskID", taskID).Msg("scrapy task canceled")
@@ -421,13 +425,20 @@ func (s *Service) scrapyLoop(taskID int, cookies string, requestInterval time.Du
 		if err != nil {
 			var retryErr *requestRetryableError
 			if errors.As(err, &retryErr) {
+				delay := s.retryDelay
+				if bilihttp.IsRateLimitError(retryErr) {
+					consecutiveRateLimits++
+					delay = rateLimitBackoff(consecutiveRateLimits, bilihttp.RetryAfter(retryErr))
+				} else {
+					consecutiveRateLimits = 0
+				}
 				s.emitEvent("scrapy_retry_wait", ScrapyRetryEvent{
 					TaskID:  taskID,
-					Seconds: int(s.retryDelay.Seconds()),
+					Seconds: durationSecondsCeil(delay),
 					Reason:  retryErr.Error(),
 				})
-				s.emitEvent("scrapy_wait", int(s.retryDelay.Seconds()))
-				if !sleepWithContext(ctx, s.retryDelay) {
+				s.emitEvent("scrapy_wait", durationSecondsCeil(delay))
+				if !sleepWithContext(ctx, delay) {
 					return
 				}
 				continue
@@ -437,6 +448,7 @@ func (s *Service) scrapyLoop(taskID int, cookies string, requestInterval time.Du
 			s.emitEvent("scrapy_failed", taskID)
 			return
 		}
+		consecutiveRateLimits = 0
 
 		if roundFinished {
 			scrapyItem.IncreaseNumber++
@@ -711,23 +723,45 @@ func sleepWithContext(ctx context.Context, duration time.Duration) bool {
 }
 
 func normalizeIntervalSeconds(seconds float64) float64 {
-	if seconds < 0 {
-		return 3
+	minimum := minimumTaskRequestInterval.Seconds()
+	if seconds < minimum {
+		return minimum
 	}
 	return seconds
 }
 
 func (s *Service) resolveTaskRequestInterval(seconds float64) time.Duration {
-	if seconds == 0 {
-		return 0
-	}
-	if seconds > 0 {
+	if seconds >= minimumTaskRequestInterval.Seconds() {
 		return time.Duration(seconds * float64(time.Second))
 	}
 	if s.requestInterval > 0 {
 		return s.requestInterval
 	}
 	return time.Duration(normalizeIntervalSeconds(seconds) * float64(time.Second))
+}
+
+func rateLimitBackoff(strikes int, retryAfter time.Duration) time.Duration {
+	if strikes < 1 {
+		strikes = 1
+	}
+	delay := rateLimitRetryDelay
+	for i := 1; i < strikes && delay < maximumRateLimitRetryDelay; i++ {
+		delay *= 2
+		if delay > maximumRateLimitRetryDelay {
+			delay = maximumRateLimitRetryDelay
+		}
+	}
+	if retryAfter > delay {
+		return retryAfter
+	}
+	return delay
+}
+
+func durationSecondsCeil(duration time.Duration) int {
+	if duration <= 0 {
+		return 0
+	}
+	return int((duration + time.Second - 1) / time.Second)
 }
 
 func (s *Service) recordAndEmitMonitorHit(event dao.MonitorAlertEvent) {

@@ -51,7 +51,7 @@ CREATE TABLE scrapy_items
 		Product:             "31212",
 		ProductName:         "测试类型",
 		AccountID:           9,
-		RequestIntervalSec:  0.4,
+		RequestIntervalSec:  12.4,
 		Nums:                0,
 		IncreaseNumber:      0,
 		NextToken:           &nextToken,
@@ -78,8 +78,8 @@ WHERE id = ?`, id).Scan(&accountID, &interval, &order, &token); err != nil {
 	if accountID != 9 {
 		t.Fatalf("expected account_id 9, got %d", accountID)
 	}
-	if interval != 0.4 {
-		t.Fatalf("expected request_interval_seconds 0.4, got %v", interval)
+	if interval != 12.4 {
+		t.Fatalf("expected request_interval_seconds 12.4, got %v", interval)
 	}
 	if order != "TIME_DESC" {
 		t.Fatalf("expected order TIME_DESC, got %q", order)

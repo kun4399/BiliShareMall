@@ -27,13 +27,13 @@ const emit = defineEmits<{
 
 const statusMeta = computed(() => describeTaskUiState(props.taskState));
 const selectedAccountId = ref(0);
-const requestIntervalSeconds = ref(3);
+const requestIntervalSeconds = ref(12);
 
 watch(
   () => props.task,
   task => {
     selectedAccountId.value = Number(task.accountId || 0);
-    requestIntervalSeconds.value = Number(task.requestIntervalSeconds ?? 3);
+    requestIntervalSeconds.value = Number(task.requestIntervalSeconds ?? 12);
   },
   { immediate: true, deep: true }
 );
@@ -45,7 +45,7 @@ const metricItems = computed(() => [
   },
   {
     label: '间隔',
-    value: props.task.requestIntervalSeconds === 0 ? '连续' : `${props.task.requestIntervalSeconds || 3}s`
+    value: `${props.task.requestIntervalSeconds || 12}s`
   },
   {
     label: '折扣',
@@ -126,11 +126,11 @@ function saveConfig() {
         <NSelect v-model:value="selectedAccountId" :options="accountOptions" class="task-config-account" placeholder="选择账号" />
         <NInputNumber
           v-model:value="requestIntervalSeconds"
-          :min="0"
+          :min="12"
           :step="0.1"
           :precision="1"
           class="task-config-interval"
-          placeholder="间隔秒，0=连续"
+          placeholder="请求间隔，至少 12 秒"
         />
         <NButton size="small" type="primary" :disabled="isRunning" @click="saveConfig">保存配置</NButton>
       </div>

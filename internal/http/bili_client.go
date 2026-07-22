@@ -8,6 +8,7 @@ import (
 	"io"
 	nethttp "net/http"
 	neturl "net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,8 +16,9 @@ import (
 )
 
 type BiliClient struct {
-	httpClient *nethttp.Client
-	headers    map[string]string
+	httpClient  *nethttp.Client
+	headers     map[string]string
+	rateLimiter *marketRateLimiter
 }
 
 const (
@@ -43,7 +45,8 @@ func NewBiliClient() (*BiliClient, error) {
 			Transport: transport,
 			Timeout:   20 * time.Second,
 		},
-		headers: headers,
+		headers:     headers,
+		rateLimiter: defaultMarketRateLimiter,
 	}, nil
 }
 
@@ -99,6 +102,11 @@ func (c *BiliClient) DoJSON(
 		req.Header.Set(key, value)
 	}
 
+	rateLimitIdentity, err := c.rateLimiter.Wait(ctx, req)
+	if err != nil {
+		return fmt.Errorf("request canceled while waiting for a safe request slot: %w", err)
+	}
+
 	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
@@ -112,14 +120,28 @@ func (c *BiliClient) DoJSON(
 	if err != nil {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
+	trimmed := strings.TrimSpace(string(resp))
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(res.Header.Get("Content-Type"), ";")[0]))
+	if res.StatusCode == nethttp.StatusTooManyRequests || looksLikeRateLimitPage(trimmed) {
+		retryAfter := parseRetryAfter(res.Header.Get("Retry-After"), time.Now())
+		retryAfter = c.rateLimiter.Penalize(rateLimitIdentity, retryAfter)
+		return &HTTPStatusError{
+			StatusCode: nethttp.StatusTooManyRequests,
+			RetryAfter: retryAfter,
+			Message:    "too many requests",
+		}
+	}
+	if res.StatusCode < nethttp.StatusOK || res.StatusCode >= nethttp.StatusMultipleChoices {
+		return &HTTPStatusError{
+			StatusCode: res.StatusCode,
+			RetryAfter: parseRetryAfter(res.Header.Get("Retry-After"), time.Now()),
+			Message:    responseSnippet(resp),
+		}
+	}
+	c.rateLimiter.MarkSuccess(rateLimitIdentity)
 	if respObjRef == nil {
 		return nil
 	}
-	if res.StatusCode < nethttp.StatusOK || res.StatusCode >= nethttp.StatusMultipleChoices {
-		return fmt.Errorf("request returned HTTP %d: %s", res.StatusCode, responseSnippet(resp))
-	}
-	trimmed := strings.TrimSpace(string(resp))
-	contentType := strings.ToLower(strings.TrimSpace(strings.Split(res.Header.Get("Content-Type"), ";")[0]))
 	if strings.HasPrefix(trimmed, "<") || contentType == "text/html" || contentType == "application/xhtml+xml" {
 		log.Warn().
 			Int("status", res.StatusCode).
@@ -138,6 +160,31 @@ func (c *BiliClient) DoJSON(
 		return fmt.Errorf("failed to decode response: %w (body: %s)", err, responseSnippet(resp))
 	}
 	return nil
+}
+
+func looksLikeRateLimitPage(body string) bool {
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "too many requests") ||
+		strings.Contains(body, "错误号: 429") ||
+		strings.Contains(body, "错误：429") ||
+		strings.Contains(body, "请求过于频繁")
+}
+
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds <= 0 {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if retryAt, err := nethttp.ParseTime(value); err == nil && retryAt.After(now) {
+		return retryAt.Sub(now)
+	}
+	return 0
 }
 
 func responseSnippet(body []byte) string {
