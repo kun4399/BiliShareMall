@@ -68,6 +68,33 @@ CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_created
 CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_status_created
     ON c2c_items(sku_id, normalized_status, created_at DESC, c2c_items_id DESC);
 
+CREATE TABLE IF NOT EXISTS c2c_item_groups
+(
+    sku_id              INTEGER PRIMARY KEY,
+    c2c_items_name      TEXT    NOT NULL DEFAULT '',
+    detail_img          TEXT    NOT NULL DEFAULT '',
+    item_count          INTEGER NOT NULL DEFAULT 0,
+    min_price           INTEGER NOT NULL DEFAULT 0,
+    reference_price_min INTEGER NOT NULL DEFAULT 0,
+    reference_price_max INTEGER NOT NULL DEFAULT 0,
+    has_reference_price INTEGER NOT NULL DEFAULT 0,
+    first_seen_time     INTEGER NOT NULL DEFAULT 0,
+    latest_publish_time INTEGER NOT NULL DEFAULT 0,
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_c2c_item_groups_first_seen
+    ON c2c_item_groups(first_seen_time DESC, has_reference_price DESC, reference_price_min ASC, sku_id ASC);
+
+CREATE INDEX IF NOT EXISTS idx_c2c_item_groups_reference_price_asc
+    ON c2c_item_groups(has_reference_price DESC, reference_price_min ASC, first_seen_time DESC, sku_id ASC);
+
+CREATE INDEX IF NOT EXISTS idx_c2c_item_groups_reference_price_desc
+    ON c2c_item_groups(has_reference_price DESC, reference_price_max DESC, first_seen_time DESC, sku_id ASC);
+
+CREATE INDEX IF NOT EXISTS idx_c2c_item_groups_latest_publish
+    ON c2c_item_groups(latest_publish_time DESC, sku_id ASC);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS c2c_fts USING fts5
 (
     c2c_items_name,

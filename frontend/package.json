@@ -18,12 +18,11 @@
     "preview": "vite preview",
     "release": "sa release",
     "test:runtime": "tsx --test src/gateway/runtime.test.ts",
-    "test:unit": "tsx --test src/**/*.test.ts",
+    "test:unit": "tsx --test \"src/**/*.test.ts\"",
     "typecheck": "vue-tsc --noEmit",
     "update-pkg": "sa update-pkg"
   },
   "dependencies": {
-    "@better-scroll/core": "2.5.1",
     "@iconify/vue": "4.1.2",
     "@sa/axios": "workspace:*",
     "@sa/color": "workspace:*",
@@ -71,7 +70,6 @@
     "unplugin-vue-components": "0.27.4",
     "vite": "5.4.10",
     "vite-plugin-progress": "0.0.7",
-    "vite-plugin-svg-icons": "2.0.1",
     "vite-plugin-vue-devtools": "7.5.4",
     "vue-eslint-parser": "9.4.3",
     "vue-tsc": "2.1.6"

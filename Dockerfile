@@ -9,6 +9,8 @@ COPY frontend ./
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm build
+RUN find dist -type f \( -name '*.html' -o -name '*.js' -o -name '*.css' -o -name '*.svg' -o -name '*.json' \) \
+    -exec gzip -9 -k '{}' \;
 
 FROM golang:1.23-bookworm AS web-builder
 
@@ -46,5 +48,8 @@ ENV BSM_DATA_DIR=/data
 ENV BSM_HTTP_ADDR=:3761
 
 EXPOSE 3761
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+  CMD ["/app/BiliShareMallWeb", "-healthcheck"]
 
 CMD ["/app/BiliShareMallWeb"]

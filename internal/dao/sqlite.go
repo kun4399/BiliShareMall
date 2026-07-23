@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -17,7 +18,9 @@ const (
 )
 
 type Database struct {
-	Db *sql.DB
+	Db          *sql.DB
+	catalogOnce sync.Once
+	catalogErr  error
 }
 
 func NewDatabase(dbPath string) (*Database, error) {

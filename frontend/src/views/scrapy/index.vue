@@ -29,12 +29,23 @@ const {
 </script>
 
 <template>
-  <NSpace vertical size="medium">
+  <main class="scrapy-page">
+    <section class="bsm-page-heading">
+      <div>
+        <p class="bsm-page-heading__eyebrow">COLLECTION TASKS</p>
+        <h1>爬取任务</h1>
+        <p>配置账号与筛选条件，持续采集会员购市集商品。</p>
+      </div>
+      <NTag :type="runningCount ? 'success' : 'default'" round size="large">
+        {{ runningCount ? `${runningCount} 个任务运行中` : '当前无运行任务' }}
+      </NTag>
+    </section>
+
     <NAlert v-if="sourceNotice" title="筛选配置提醒" type="warning">
       {{ sourceNotice }}
     </NAlert>
 
-    <NCard class="card-wrapper" title="添加爬取任务" size="small">
+    <NCard class="card-wrapper bsm-surface-card" title="添加爬取任务" size="small" :bordered="false">
       <template #header-extra>
         <NButton @click="addScrapy">
           <template #icon>
@@ -94,7 +105,7 @@ const {
       </div>
     </NCard>
 
-    <NCard class="running-card" title="运行中的任务" size="small">
+    <NCard v-if="runningCount" class="running-card" title="运行中的任务" size="small" :bordered="false">
       <NSpace align="center" size="small">
         <NTag type="success" size="medium">运行中 {{ runningCount }} 个</NTag>
         <NTag v-for="id in runningTaskIds" :key="id" type="info" round>
@@ -103,24 +114,49 @@ const {
       </NSpace>
     </NCard>
 
-    <ScrapyTaskCard
-      v-for="(scrapy, idx) in scrapyList"
-      :key="scrapy.id"
-      :task="scrapy"
-      :order-label="getOptionLabel(orderOptions, scrapy.order)"
-      :account-label="getAccountLabelById(scrapy.accountId, scrapy.accountName)"
-      :account-options="accountOptions"
-      :task-state="getTaskUiState(scrapy.id)"
-      :is-running="isTaskRunning(scrapy.id)"
-      @close="handleClose(idx)"
-      @run="handleRun(idx)"
-      @stop="handleStop(scrapy.id)"
-      @save-config="handleSaveTaskConfig(scrapy.id, $event.accountId, $event.requestIntervalSeconds)"
-    />
-  </NSpace>
+    <div v-if="scrapyList.length" class="scrapy-task-list">
+      <ScrapyTaskCard
+        v-for="(scrapy, idx) in scrapyList"
+        :key="scrapy.id"
+        :task="scrapy"
+        :order-label="getOptionLabel(orderOptions, scrapy.order)"
+        :account-label="getAccountLabelById(scrapy.accountId, scrapy.accountName)"
+        :account-options="accountOptions"
+        :task-state="getTaskUiState(scrapy.id)"
+        :is-running="isTaskRunning(scrapy.id)"
+        @close="handleClose(idx)"
+        @run="handleRun(idx)"
+        @stop="handleStop(scrapy.id)"
+        @save-config="handleSaveTaskConfig(scrapy.id, $event.accountId, $event.requestIntervalSeconds)"
+      />
+    </div>
+
+    <NEmpty v-else class="scrapy-empty" description="还没有爬取任务，请先添加一个任务" />
+  </main>
 </template>
 
 <style lang="css">
+.scrapy-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bsm-space-4);
+  width: min(100%, 1500px);
+  margin: 0 auto;
+}
+
+.scrapy-task-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
+  gap: 14px;
+}
+
+.scrapy-empty {
+  padding: 64px 16px;
+  border: 1px dashed var(--bsm-border);
+  border-radius: var(--bsm-radius-xl);
+  background: var(--bsm-surface);
+}
+
 .card-wrapper :is(.n-card__content, .n-card-header) {
   padding-bottom: 8px;
 }
@@ -139,6 +175,7 @@ const {
   --n-text-color: #1f3d18;
   --n-title-text-color: #1f3d18;
   color: #1f3d18;
+  border-radius: var(--bsm-radius-lg);
 }
 
 .running-card :is(.n-card-header__main, .n-card-header__extra, .n-card__content) {
@@ -152,5 +189,11 @@ html.dark .running-card {
   --n-text-color: #e8f7ea;
   --n-title-text-color: #e8f7ea;
   color: #e8f7ea;
+}
+
+@media (max-width: 640px) {
+  .scrapy-task-list {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

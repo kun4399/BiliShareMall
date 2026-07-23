@@ -20,7 +20,7 @@ export interface CatalogDetailQuery {
   cookie: string;
 }
 
-export function fetchCatalogList(query: CatalogListQuery) {
+export function fetchCatalogList(query: CatalogListQuery, signal?: AbortSignal) {
   return ListC2CItem(
     query.page,
     query.pageSize,
@@ -29,7 +29,8 @@ export function fetchCatalogList(query: CatalogListQuery) {
     query.startTime,
     query.endTime,
     query.fromPrice,
-    query.toPrice
+    query.toPrice,
+    signal
   );
 }
 

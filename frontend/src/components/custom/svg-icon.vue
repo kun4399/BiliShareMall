@@ -20,21 +20,22 @@ interface Props {
 const props = defineProps<Props>();
 
 const attrs = useAttrs();
+const localIconUrls = import.meta.glob('../../assets/svg-icon/*.svg', {
+  eager: true,
+  query: '?url',
+  import: 'default'
+}) as Record<string, string>;
 
 const bindAttrs = computed<{ class: string; style: string }>(() => ({
   class: (attrs.class as string) || '',
   style: (attrs.style as string) || ''
 }));
 
-const symbolId = computed(() => {
-  const { VITE_ICON_LOCAL_PREFIX: prefix } = import.meta.env;
-
-  const defaultLocalIcon = 'no-icon';
-
-  const icon = props.localIcon || defaultLocalIcon;
-
-  return `#${prefix}-${icon}`;
-});
+const localIconSrc = computed(
+  () =>
+    localIconUrls[`../../assets/svg-icon/${props.localIcon || 'no-icon'}.svg`] ||
+    localIconUrls['../../assets/svg-icon/no-icon.svg']
+);
 
 /** If localIcon is passed, render localIcon first */
 const renderLocalIcon = computed(() => props.localIcon || !props.icon);
@@ -42,9 +43,7 @@ const renderLocalIcon = computed(() => props.localIcon || !props.icon);
 
 <template>
   <template v-if="renderLocalIcon">
-    <svg aria-hidden="true" width="1em" height="1em" v-bind="bindAttrs">
-      <use :xlink:href="symbolId" fill="currentColor" />
-    </svg>
+    <img aria-hidden="true" width="1em" height="1em" :src="localIconSrc" v-bind="bindAttrs" />
   </template>
   <template v-else>
     <Icon v-if="icon" :icon="icon" v-bind="bindAttrs" />

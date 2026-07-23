@@ -10,9 +10,9 @@ const { loginUrl, loading, statusText } = useBiliQrLogin();
 
 <template>
   <NSpin :show="loading" size="large" class="spin-container">
-    <NSpace vertical>
+    <NSpace vertical align="center">
       <NQrCode v-if="loginUrl" :value="loginUrl" :size="200" :padding="0" />
-      <NText depth="3">{{ statusText }}</NText>
+      <NText depth="3" class="login-status">{{ statusText }}</NText>
       <template #description>{{ statusText }}</template>
     </NSpace>
   </NSpin>
@@ -22,6 +22,14 @@ const { loginUrl, loading, statusText } = useBiliQrLogin();
 .spin-container {
   display: flex;
   justify-content: center;
-  height: 300px; /* 设置合适的高度 */
+  height: 270px;
+  padding-top: 24px;
+}
+
+.login-status {
+  display: block;
+  max-width: 280px;
+  text-align: center;
+  line-height: 1.5;
 }
 </style>

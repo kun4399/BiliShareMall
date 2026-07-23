@@ -74,11 +74,26 @@ else
 fi
 
 if ((SKIP_TESTS == 0)); then
-  log "Running backend verification tests: go test ./internal/..."
-  go test ./internal/...
+  log "Running backend verification tests: go test ./..."
+  go test ./...
+  log "Running frontend type checks and unit tests"
+  pnpm --dir frontend run typecheck
+  pnpm --dir frontend run test:unit
 else
-  log "Skipping backend tests"
+  log "Skipping tests"
 fi
+
+log "Building production web assets"
+pnpm --dir frontend run build
+
+entry_asset="$(sed -n 's/.*src="\/assets\/\([^"]*\.js\)".*/\1/p' frontend/dist/index.html | head -n 1)"
+[[ -n "$entry_asset" ]] || die "Unable to resolve frontend entry asset"
+entry_gzip_bytes="$(gzip -c "frontend/dist/assets/$entry_asset" | wc -c | tr -d ' ')"
+entry_gzip_budget="${ENTRY_GZIP_BUDGET_BYTES:-350000}"
+if ((entry_gzip_bytes > entry_gzip_budget)); then
+  die "Frontend entry gzip size ${entry_gzip_bytes}B exceeds budget ${entry_gzip_budget}B"
+fi
+log "Frontend entry gzip size: ${entry_gzip_bytes}B / ${entry_gzip_budget}B"
 
 if ((SKIP_BUILD == 0)); then
   log "Building app with Wails"
@@ -95,18 +110,20 @@ else
   log "Skipping Wails build"
 fi
 
-artifact_path=""
-if [[ "${OS:-}" == "Windows_NT" ]]; then
-  artifact_path="$ROOT_DIR/build/bin/${APP_NAME}.exe"
-else
-  case "$(uname -s)" in
-    Darwin) artifact_path="$ROOT_DIR/build/bin/${APP_NAME}.app" ;;
-    Linux) artifact_path="$ROOT_DIR/build/bin/${APP_NAME}" ;;
-    *) die "Unsupported OS for artifact verification: $(uname -s)" ;;
-  esac
+if ((SKIP_BUILD == 0)); then
+  artifact_path=""
+  if [[ "${OS:-}" == "Windows_NT" ]]; then
+    artifact_path="$ROOT_DIR/build/bin/${APP_NAME}.exe"
+  else
+    case "$(uname -s)" in
+      Darwin) artifact_path="$ROOT_DIR/build/bin/${APP_NAME}.app" ;;
+      Linux) artifact_path="$ROOT_DIR/build/bin/${APP_NAME}" ;;
+      *) die "Unsupported OS for artifact verification: $(uname -s)" ;;
+    esac
+  fi
+
+  [[ -e "$artifact_path" ]] || die "Build artifact not found: $artifact_path"
+  log "Artifact: $artifact_path"
 fi
 
-[[ -e "$artifact_path" ]] || die "Build artifact not found: $artifact_path"
-
 log "Build and verification completed successfully"
-log "Artifact: $artifact_path"

@@ -40,11 +40,11 @@ func buildGroupConditions(filterName string, startTime, endTime int64, fromPrice
 func buildGroupSort(sortOption int) string {
 	switch sortOption {
 	case 2:
-		return "ORDER BY CASE WHEN grouped.reference_price_min > 0 THEN 0 ELSE 1 END ASC, grouped.reference_price_min ASC, grouped.first_seen_time DESC"
+		return "ORDER BY grouped.has_reference_price DESC, grouped.reference_price_min ASC, grouped.first_seen_time DESC, grouped.sku_id ASC"
 	case 3:
-		return "ORDER BY CASE WHEN grouped.reference_price_max > 0 THEN 0 ELSE 1 END ASC, grouped.reference_price_max DESC, grouped.first_seen_time DESC"
+		return "ORDER BY grouped.has_reference_price DESC, grouped.reference_price_max DESC, grouped.first_seen_time DESC, grouped.sku_id ASC"
 	default:
-		return "ORDER BY grouped.first_seen_time DESC, CASE WHEN grouped.reference_price_min > 0 THEN 0 ELSE 1 END ASC, grouped.reference_price_min ASC"
+		return "ORDER BY grouped.first_seen_time DESC, grouped.has_reference_price DESC, grouped.reference_price_min ASC, grouped.sku_id ASC"
 	}
 }
 

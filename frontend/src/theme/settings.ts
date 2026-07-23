@@ -14,7 +14,7 @@ export const themeSettings: App.Theme.ThemeSetting = {
   isInfoFollowPrimary: true,
   resetCacheStrategy: 'close',
   layout: {
-    mode: 'horizontal',
+    mode: 'vertical',
     scrollMode: 'content',
     reverseHorizontalMix: false
   },
@@ -90,7 +90,7 @@ export const overrideThemeSettings: Partial<App.Theme.ThemeSetting> = {
     text: 'BiliShareMall'
   },
   layout: {
-    mode: 'horizontal',
+    mode: 'vertical',
     scrollMode: 'content',
     reverseHorizontalMix: false
   },

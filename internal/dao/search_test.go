@@ -523,6 +523,9 @@ func TestReadC2CItemGroupsUsesReferencePriceRangeAndFirstSeenSort(t *testing.T) 
 	`); err != nil {
 		t.Fatalf("failed to set created_at for grouped rows: %v", err)
 	}
+	if err := db.RefreshCatalogGroups(9501, 9601); err != nil {
+		t.Fatalf("refresh catalog groups after direct test mutation: %v", err)
+	}
 
 	groups, total, err := db.ReadC2CItemGroups(1, 10, "", 1, -1, -1, -1, -1)
 	if err != nil {

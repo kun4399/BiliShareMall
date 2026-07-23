@@ -2,6 +2,7 @@ package web
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"
@@ -29,6 +30,10 @@ type stubAPI struct {
 	lastDetailCookie        string
 	lastRuntimeConfigCookie string
 	accounts                []appcore.LoginAccount
+}
+
+func (s *stubAPI) HealthCheck(context.Context) error {
+	return nil
 }
 
 func (s *stubAPI) GetLoginKeyAndUrl() appcore.LoginInfo { return appcore.LoginInfo{} }
@@ -129,6 +134,9 @@ func TestCatalogItemsEndpoint(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", recorder.Code)
 	}
+	if timing := recorder.Header().Get("Server-Timing"); !strings.HasPrefix(timing, "catalog;dur=") {
+		t.Fatalf("expected catalog Server-Timing header, got %q", timing)
+	}
 	body := recorder.Body.String()
 	if !strings.Contains(body, `"skuId":1001`) {
 		t.Fatalf("expected response body to contain skuId, got %s", body)
@@ -138,6 +146,21 @@ func TestCatalogItemsEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(body, `"referencePriceLabel":"参考价 129.00 元"`) {
 		t.Fatalf("expected response body to contain referencePriceLabel, got %s", body)
+	}
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	server := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	recorder := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), `"database":"ok"`) {
+		t.Fatalf("expected database health payload, got %s", recorder.Body.String())
 	}
 }
 
@@ -392,6 +415,46 @@ func TestSPAHandlerCachesHashedAssets(t *testing.T) {
 
 	if got := recorder.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
 		t.Fatalf("expected immutable cache header, got %q", got)
+	}
+}
+
+func TestSPAHandlerServesPrecompressedAssetWithOriginalMimeType(t *testing.T) {
+	root := newStaticRoot(t)
+	assetsDir := filepath.Join(root, "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatalf("create assets directory: %v", err)
+	}
+	rawBody := []byte("console.log('precompressed')")
+	if err := os.WriteFile(filepath.Join(assetsDir, "app-hash.js"), rawBody, 0o644); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(rawBody); err != nil {
+		t.Fatalf("compress asset: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close gzip writer: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "app-hash.js.gz"), compressed.Bytes(), 0o644); err != nil {
+		t.Fatalf("write precompressed asset: %v", err)
+	}
+
+	server := NewServer(&stubAPI{bus: events.NewBus()}, root)
+	req := httptest.NewRequest(http.MethodGet, "/assets/app-hash.js", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, req)
+
+	if got := recorder.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("expected precompressed gzip response, got %q", got)
+	}
+	if got := recorder.Header().Get("Content-Type"); !strings.Contains(got, "javascript") {
+		t.Fatalf("expected JavaScript content type, got %q", got)
+	}
+	if !bytes.Equal(recorder.Body.Bytes(), compressed.Bytes()) {
+		t.Fatal("expected server to return the precompressed sidecar")
 	}
 }
 

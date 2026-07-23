@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	neturl "net/url"
@@ -29,6 +30,7 @@ const imageProxyReferer = "https://mall.bilibili.com/"
 const imageProxyUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
 
 type AppAPI interface {
+	HealthCheck(ctx context.Context) error
 	GetLoginKeyAndUrl() appcore.LoginInfo
 	VerifyLogin(loginKey string) appcore.VerifyLoginResponse
 	GetSharedLoginSession() appcore.SharedLoginSession
@@ -112,6 +114,7 @@ func ResolveStaticRoot() (string, error) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("GET /api/healthz", s.handleHealth)
 	mux.HandleFunc("GET /api/auth/qr", s.handleLoginQR)
 	mux.HandleFunc("GET /api/auth/poll", s.handleLoginPoll)
 	mux.HandleFunc("GET /api/auth/session", s.handleLoginSession)
@@ -137,7 +140,23 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 	mux.Handle("/", s.handleSPA())
 
-	return withLogging(withStaticCompression(mux))
+	return withLogging(withStaticCompression(s.staticRoot, mux))
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.api.HealthCheck(ctx); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status":   "unavailable",
+			"database": "error",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":   "ok",
+		"database": "ok",
+	})
 }
 
 func (s *Server) handleLoginQR(w http.ResponseWriter, _ *http.Request) {
@@ -191,6 +210,7 @@ func (s *Server) handleClearAllLoginAccounts(w http.ResponseWriter, _ *http.Requ
 }
 
 func (s *Server) handleCatalogItems(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
 	page, err := intQuery(r, "page", 1)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -241,10 +261,20 @@ func (s *Server) handleCatalogItems(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, serviceErr)
 		return
 	}
+	duration := time.Since(startedAt)
+	w.Header().Set("Server-Timing", fmt.Sprintf("catalog;dur=%.2f", float64(duration.Microseconds())/1000))
+	if duration >= 300*time.Millisecond {
+		log.Warn().
+			Dur("duration", duration).
+			Int("page", page).
+			Int("pageSize", pageSize).
+			Msg("slow catalog API request")
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleCatalogItemDetail(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
 	skuID, err := pathInt64(r, "skuId")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -278,6 +308,8 @@ func (s *Server) handleCatalogItemDetail(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, serviceErr)
 		return
 	}
+	duration := time.Since(startedAt)
+	w.Header().Set("Server-Timing", fmt.Sprintf("catalog-detail;dur=%.2f", float64(duration.Microseconds())/1000))
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -532,13 +564,30 @@ func (s *Server) handleSPA() http.Handler {
 			} else {
 				w.Header().Set("Cache-Control", "public, max-age=3600")
 			}
+			if acceptsGzip(r) && fileExists(staticFS, cleaned+".gz") {
+				servePrecompressedFile(w, r, s.staticRoot, cleaned)
+				return
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 
 		w.Header().Set("Cache-Control", "no-cache")
+		if acceptsGzip(r) && fileExists(staticFS, "index.html.gz") {
+			servePrecompressedFile(w, r, s.staticRoot, "index.html")
+			return
+		}
 		http.ServeFile(w, r, filepath.Join(s.staticRoot, "index.html"))
 	})
+}
+
+func servePrecompressedFile(w http.ResponseWriter, r *http.Request, staticRoot, requestedPath string) {
+	if contentType := mime.TypeByExtension(filepath.Ext(requestedPath)); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	w.Header().Set("Content-Encoding", "gzip")
+	w.Header().Add("Vary", "Accept-Encoding")
+	http.ServeFile(w, r, filepath.Join(staticRoot, requestedPath+".gz"))
 }
 
 type gzipResponseWriter struct {
@@ -559,12 +608,24 @@ func (w *gzipResponseWriter) Write(body []byte) (int, error) {
 	return w.writer.Write(body)
 }
 
-func withStaticCompression(next http.Handler) http.Handler {
+func withStaticCompression(staticRoot string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet ||
 			strings.HasPrefix(r.URL.Path, "/api/") ||
-			!strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") ||
+			!acceptsGzip(r) ||
 			r.Header.Get("Range") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		staticFS := os.DirFS(staticRoot)
+		cleaned := strings.TrimPrefix(filepath.Clean(r.URL.Path), "/")
+		if cleaned == "." || cleaned == "" {
+			cleaned = "index.html"
+		} else if !fileExists(staticFS, cleaned) {
+			cleaned = "index.html"
+		}
+		if fileExists(staticFS, cleaned+".gz") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -577,6 +638,10 @@ func withStaticCompression(next http.Handler) http.Handler {
 			_ = wrapped.writer.Close()
 		}
 	})
+}
+
+func acceptsGzip(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && r.Header.Get("Range") == ""
 }
 
 func withLogging(next http.Handler) http.Handler {

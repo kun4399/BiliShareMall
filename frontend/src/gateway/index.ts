@@ -43,7 +43,8 @@ export interface AppGateway {
     startTime: number,
     endTime: number,
     fromPrice: number,
-    toPrice: number
+    toPrice: number,
+    signal?: AbortSignal
   ): Promise<catalog.C2CItemGroupListVO>;
   GetC2CItemNameBySku(skuId: number): Promise<string>;
   ListC2CItemDetailBySku(
@@ -105,7 +106,8 @@ class WailsGateway implements AppGateway {
     startTime: number,
     endTime: number,
     fromPrice: number,
-    toPrice: number
+    toPrice: number,
+    _signal?: AbortSignal
   ) {
     return WailsListC2CItem(page, pageSize, filterName, sortOption, startTime, endTime, fromPrice, toPrice);
   }
@@ -283,7 +285,8 @@ class WebGateway implements AppGateway {
     startTime: number,
     endTime: number,
     fromPrice: number,
-    toPrice: number
+    toPrice: number,
+    signal?: AbortSignal
   ) {
     const query = new URLSearchParams({
       page: String(page),
@@ -295,7 +298,7 @@ class WebGateway implements AppGateway {
       fromPrice: String(fromPrice),
       toPrice: String(toPrice)
     });
-    return fetchJSON<catalog.C2CItemGroupListVO>(`/api/catalog/items?${query.toString()}`);
+    return fetchJSON<catalog.C2CItemGroupListVO>(`/api/catalog/items?${query.toString()}`, { signal });
   }
 
   async GetC2CItemNameBySku(skuId: number) {
@@ -451,8 +454,9 @@ export const ListC2CItem = (
   startTime: number,
   endTime: number,
   fromPrice: number,
-  toPrice: number
-) => appGateway.ListC2CItem(page, pageSize, filterName, sortOption, startTime, endTime, fromPrice, toPrice);
+  toPrice: number,
+  signal?: AbortSignal
+) => appGateway.ListC2CItem(page, pageSize, filterName, sortOption, startTime, endTime, fromPrice, toPrice, signal);
 export const GetC2CItemNameBySku = (skuId: number) => appGateway.GetC2CItemNameBySku(skuId);
 export const ListC2CItemDetailBySku = (
   skuId: number,

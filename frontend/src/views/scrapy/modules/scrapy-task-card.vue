@@ -74,7 +74,7 @@ function saveConfig() {
 </script>
 
 <template>
-  <NCard class="scrapy-task-card" size="small" closable @close="emit('close')">
+  <NCard class="scrapy-task-card" size="small" closable :bordered="false" @close="emit('close')">
     <template #header>
       <div class="task-card-title">
         <span>{{ task.productName }}</span>
@@ -139,6 +139,13 @@ function saveConfig() {
 </template>
 
 <style scoped>
+.scrapy-task-card {
+  height: 100%;
+  border: 1px solid var(--bsm-border);
+  border-radius: var(--bsm-radius-xl);
+  box-shadow: var(--bsm-shadow-xs);
+}
+
 .scrapy-task-card :deep(.n-card-header) {
   padding-bottom: 10px;
 }
@@ -193,8 +200,9 @@ function saveConfig() {
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--n-color-embedded);
+  border: 1px solid var(--bsm-border);
+  border-radius: var(--bsm-radius-md);
+  background: var(--bsm-surface-muted);
 }
 
 .task-metric-label {
@@ -233,6 +241,10 @@ function saveConfig() {
   }
 
   .task-config-interval {
+    width: 100%;
+  }
+
+  .task-config-row > :last-child {
     width: 100%;
   }
 }

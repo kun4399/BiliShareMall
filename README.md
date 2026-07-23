@@ -170,6 +170,7 @@ docker compose up -d
 - 镜像：`kun4399/bilisharemall:latest`
 - 端口映射：`3761:3761`
 - 数据目录映射：`./data:/data`
+- 健康检查：容器会定期访问 `/api/healthz`，确认进程和 SQLite 均可用
 
 宿主机 `./data` 目录会持久化以下运行数据：
 
@@ -178,6 +179,35 @@ docker compose up -d
 - `dict/...`
 
 迁移或备份服务器时，保留 `./data` 目录即可。
+
+### Docker Desktop 性能模式
+
+Linux 服务器继续使用默认的 `./data:/data` 即可。macOS 或 Windows 的 Docker Desktop
+在宿主机目录上运行 SQLite 时，文件同步开销可能显著放大数据库延迟。仓库同时提供命名卷配置：
+
+```bash
+docker compose -f docker-compose.volume.yml up -d
+```
+
+命名卷不会自动包含现有 `./data`。已有数据时先停止容器并备份目录，再复制到命名卷：
+
+```bash
+docker compose down
+docker volume create bilisharemall-data
+docker run --rm \
+  -v "$PWD/data:/from:ro" \
+  -v bilisharemall-data:/to \
+  alpine sh -c 'cp -a /from/. /to/'
+docker compose -f docker-compose.volume.yml up -d
+```
+
+确认历史任务、账号和数据库内容正常后再决定是否保留宿主机 `./data` 备份。
+
+### 数据库升级说明
+
+升级到包含聚合读取模型的版本时，应用会在首次启动阶段自动创建并回填
+`c2c_item_groups`。迁移在事务中完成，不会删除或重建 `c2c_items`；失败时不会更新数据库版本，
+下次启动会重新尝试。数据量较大时首次启动可能比平时多等待几秒，后续数据库列表和翻页会直接读取聚合表。
 
 ## 常见问题
 

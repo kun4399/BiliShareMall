@@ -9,7 +9,6 @@ import GlobalSider from '../modules/global-sider/index.vue';
 import GlobalTab from '../modules/global-tab/index.vue';
 import GlobalContent from '../modules/global-content/index.vue';
 import GlobalFooter from '../modules/global-footer/index.vue';
-import ThemeDrawer from '../modules/theme-drawer/index.vue';
 import { setupMixMenuContext } from '../context';
 
 defineOptions({
@@ -21,6 +20,7 @@ const themeStore = useThemeStore();
 const { childLevelMenus, isActiveFirstLevelMenuHasChildren } = setupMixMenuContext();
 
 const GlobalMenu = defineAsyncComponent(() => import('../modules/global-menu/index.vue'));
+const ThemeDrawer = defineAsyncComponent(() => import('../modules/theme-drawer/index.vue'));
 
 const layoutMode = computed(() => {
   const vertical: LayoutMode = 'vertical';
@@ -112,7 +112,7 @@ function getSiderCollapsedWidth() {
     :full-content="appStore.fullContent"
     :fixed-top="themeStore.fixedHeaderAndTab"
     :header-height="themeStore.header.height"
-    :tab-visible="themeStore.tab.visible"
+    :tab-visible="themeStore.tab.visible && !appStore.isMobile"
     :tab-height="themeStore.tab.height"
     :content-class="appStore.contentXScrollable ? 'overflow-x-hidden' : ''"
     :sider-visible="siderVisible"
@@ -134,7 +134,7 @@ function getSiderCollapsedWidth() {
     </template>
     <GlobalMenu />
     <GlobalContent />
-    <ThemeDrawer />
+    <ThemeDrawer v-if="appStore.themeDrawerVisible" />
     <template #footer>
       <GlobalFooter />
     </template>

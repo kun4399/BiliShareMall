@@ -296,9 +296,25 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <NSpace vertical size="medium">
-    <NCard title="钉钉 Webhook" size="small">
+  <main class="monitor-page">
+    <section class="bsm-page-heading monitor-heading">
+      <div>
+        <p class="bsm-page-heading__eyebrow">PRICE MONITOR</p>
+        <h1>价格监控</h1>
+        <p>按 SKU 和价格区间监听新发布商品，并通过钉钉机器人发送提醒。</p>
+      </div>
+      <div class="monitor-heading__actions">
+        <NButton secondary @click="addRule">
+          <template #icon><icon-ic-round-plus /></template>
+          新增规则
+        </NButton>
+        <NButton type="primary" @click="saveConfig">保存配置</NButton>
+      </div>
+    </section>
+
+    <NCard title="通知渠道" size="small" class="bsm-surface-card" :bordered="false">
       <NSpace vertical size="small">
+        <NText depth="3">钉钉机器人 Webhook</NText>
         <NInput
           v-model:value="webhook"
           type="textarea"
@@ -308,21 +324,9 @@ onUnmounted(() => {
       </NSpace>
     </NCard>
 
-    <NCard title="监控规则" size="small">
-      <template #header-extra>
-        <NSpace>
-          <NButton @click="addRule">
-            <template #icon>
-              <icon-ic-round-plus />
-            </template>
-            新增规则
-          </NButton>
-          <NButton type="primary" @click="saveConfig">保存配置</NButton>
-        </NSpace>
-      </template>
-
+    <NCard title="监控规则" size="small" class="bsm-surface-card" :bordered="false">
       <NEmpty v-if="rules.length === 0" description="暂无规则，点击“新增规则”开始配置" />
-      <NSpace v-else vertical size="small">
+      <div v-else class="monitor-rule-list">
         <MonitorRuleCard
           v-for="(rule, idx) in rules"
           :key="rule.key"
@@ -335,7 +339,37 @@ onUnmounted(() => {
           @lookup-now="lookupSkuName(rule)"
           @copy-link="copyHitLink"
         />
-      </NSpace>
+      </div>
     </NCard>
-  </NSpace>
+  </main>
 </template>
+
+<style scoped>
+.monitor-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bsm-space-4);
+  width: min(100%, 1500px);
+  margin: 0 auto;
+}
+
+.monitor-heading__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+}
+
+.monitor-rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .monitor-heading__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+}
+</style>

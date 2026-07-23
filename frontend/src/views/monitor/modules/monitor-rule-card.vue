@@ -36,7 +36,7 @@ function hitKey(hit: scrapy.MonitorHitItem, index: number) {
 </script>
 
 <template>
-  <NCard class="monitor-rule-card" size="small" :title="`规则 #${index + 1}`">
+  <NCard class="monitor-rule-card" size="small" :bordered="false" :title="`规则 #${index + 1}`">
     <template #header-extra>
       <div class="monitor-rule-header-extra">
         <NText depth="3" class="monitor-rule-summary">{{ hitSummary.summaryText }}</NText>
@@ -109,6 +109,12 @@ function hitKey(hit: scrapy.MonitorHitItem, index: number) {
 </template>
 
 <style scoped>
+.monitor-rule-card {
+  border: 1px solid var(--bsm-border);
+  border-radius: var(--bsm-radius-lg);
+  background: var(--bsm-surface-muted);
+}
+
 .monitor-rule-card :deep(.n-card__content) {
   display: flex;
   flex-direction: column;
@@ -136,6 +142,11 @@ function hitKey(hit: scrapy.MonitorHitItem, index: number) {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.monitor-rule-card :deep(.n-input),
+.monitor-rule-card :deep(.n-input-number) {
+  background: var(--bsm-surface);
 }
 
 .monitor-hit-empty {

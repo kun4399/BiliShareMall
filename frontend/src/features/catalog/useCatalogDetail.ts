@@ -215,6 +215,8 @@ export function useCatalogDetail() {
     columns,
     items,
     skuId,
+    getStatusType,
+    handleCopy,
     goBack,
     search
   };

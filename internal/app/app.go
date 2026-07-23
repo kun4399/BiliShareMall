@@ -22,7 +22,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const DatabaseVersion = 7
+const DatabaseVersion = 8
 
 // App struct
 type App struct {
@@ -83,7 +83,7 @@ func (a *App) Initialize() error {
 			return err
 		}
 	} else {
-		if err = a.ensureDatabaseSchema(database); err != nil {
+		if err = a.ensureDatabaseSchema(database, nil); err != nil {
 			return err
 		}
 	}
@@ -116,13 +116,10 @@ func (a *App) setupDatabase(database *dao.Database, version int) error {
 	if err = database.Init(string(content)); err != nil {
 		return err
 	}
-	if err = a.ensureDatabaseSchema(database); err != nil {
-		return err
-	}
-	return database.UpdateVersion(version)
+	return a.ensureDatabaseSchema(database, &version)
 }
 
-func (a *App) ensureDatabaseSchema(database *dao.Database) error {
+func (a *App) ensureDatabaseSchema(database *dao.Database, targetVersion *int) error {
 	var err error
 	if err = database.EnsureC2CItemReferencePriceColumn(); err != nil {
 		return err
@@ -143,6 +140,14 @@ func (a *App) ensureDatabaseSchema(database *dao.Database) error {
 		return err
 	}
 	if err = database.EnsureCatalogIndexes(); err != nil {
+		return err
+	}
+	if targetVersion != nil {
+		err = database.EnsureCatalogReadModelAndVersion(*targetVersion)
+	} else {
+		err = database.EnsureCatalogReadModel()
+	}
+	if err != nil {
 		return err
 	}
 	return nil
@@ -204,6 +209,16 @@ func (a *App) SubscribeEvents(buffer int) (<-chan events.Event, func(), error) {
 	}
 	ch, cancel := a.bus.Subscribe(buffer)
 	return ch, cancel, nil
+}
+
+func (a *App) HealthCheck(ctx context.Context) error {
+	if err := a.Initialize(); err != nil {
+		return err
+	}
+	if a.d == nil || a.d.Db == nil {
+		return errors.New("database is not initialized")
+	}
+	return a.d.Db.PingContext(ctx)
 }
 
 func (a *App) attachWailsEvents() {

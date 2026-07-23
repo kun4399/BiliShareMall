@@ -269,6 +269,7 @@ func (s *Service) refreshStatuses(skuID int64, items []dao.CSCItem, cookieStr st
 	}()
 
 	changed := false
+	statusUpdates := make([]dao.C2CItemStatusUpdate, 0, len(items))
 	for _, item := range items {
 		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
 		status, err := s.statusResolver(ctx, item, cookieStr)
@@ -277,11 +278,17 @@ func (s *Service) refreshStatuses(skuID int64, items []dao.CSCItem, cookieStr st
 			log.Warn().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to refresh item status")
 			continue
 		}
-		if err := s.d.UpdateC2CItemStatus(item.C2CItemsID, status, time.Now()); err != nil {
-			log.Error().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to update item status")
-			continue
-		}
+		statusUpdates = append(statusUpdates, dao.C2CItemStatusUpdate{
+			C2CItemsID:       item.C2CItemsID,
+			NormalizedStatus: status,
+			CheckedAt:        time.Now(),
+		})
 		changed = changed || status != item.NormalizedStatus
+	}
+
+	if err := s.d.UpdateC2CItemStatuses(statusUpdates); err != nil {
+		log.Error().Err(err).Int64("skuId", skuID).Int("count", len(statusUpdates)).Msg("failed to batch update item statuses")
+		return
 	}
 
 	if changed && s.emit != nil {

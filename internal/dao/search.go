@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 type C2CItemGroup struct {
@@ -26,46 +28,27 @@ type C2CItemGroupMeta struct {
 }
 
 func (d *Database) ReadC2CItemGroups(page, pageSize int, filterName string, sortOption int, startTime, endTime int64, fromPrice, toPrice int) ([]C2CItemGroup, int, error) {
-	offset := (page - 1) * pageSize
+	if err := d.EnsureCatalogReadModel(); err != nil {
+		return nil, 0, err
+	}
 
-	baseQuery := `
-		WITH grouped AS (
-			SELECT
-				sku_id,
-				COALESCE(MAX(NULLIF(detail_name, '')), MAX(c2c_items_name)) AS c2c_items_name,
-				MIN(price) AS min_price,
-				MIN(CASE WHEN reference_price > 0 THEN reference_price END) AS reference_price_min,
-				MAX(CASE WHEN reference_price > 0 THEN reference_price END) AS reference_price_max,
-				MIN(COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0)) AS first_seen_time,
-				MAX(COALESCE(publish_time, 0)) AS latest_publish_time,
-				COUNT(*) AS item_count
-			FROM c2c_items
-			WHERE sku_id IS NOT NULL AND sku_id != 0
-			GROUP BY sku_id
-		)
-	`
+	startedAt := time.Now()
+	offset := (page - 1) * pageSize
 
 	listQuery := `
 		SELECT
 			grouped.sku_id,
 			grouped.c2c_items_name,
-			COALESCE((
-				SELECT rep.detail_img
-				FROM c2c_items rep
-				WHERE rep.sku_id = grouped.sku_id
-				  AND TRIM(COALESCE(rep.detail_img, '')) != ''
-				ORDER BY rep.publish_time DESC, rep.updated_at DESC, rep.c2c_items_id DESC
-				LIMIT 1
-			), '') AS detail_img,
+			grouped.detail_img,
 			grouped.item_count,
 			grouped.min_price,
-			COALESCE(grouped.reference_price_min, 0) AS reference_price_min,
-			COALESCE(grouped.reference_price_max, 0) AS reference_price_max,
+			grouped.reference_price_min,
+			grouped.reference_price_max,
 			grouped.first_seen_time,
 			grouped.latest_publish_time
-		FROM grouped
+		FROM c2c_item_groups AS grouped
 	`
-	countQuery := `SELECT COUNT(*) FROM grouped`
+	countQuery := `SELECT COUNT(*) FROM c2c_item_groups AS grouped`
 
 	conditions, args := buildGroupConditions(filterName, startTime, endTime, fromPrice, toPrice)
 	if len(conditions) > 0 {
@@ -76,13 +59,16 @@ func (d *Database) ReadC2CItemGroups(page, pageSize int, filterName string, sort
 
 	listQuery += " " + buildGroupSort(sortOption) + " LIMIT ? OFFSET ?"
 
+	countStartedAt := time.Now()
 	var totalCount int
-	if err := d.Db.QueryRowContext(context.Background(), baseQuery+countQuery, args...).Scan(&totalCount); err != nil {
+	if err := d.Db.QueryRowContext(context.Background(), countQuery, args...).Scan(&totalCount); err != nil {
 		return nil, 0, err
 	}
+	countDuration := time.Since(countStartedAt)
 
 	queryArgs := append(append([]any{}, args...), pageSize, offset)
-	rows, err := d.Db.QueryContext(context.Background(), baseQuery+listQuery, queryArgs...)
+	listStartedAt := time.Now()
+	rows, err := d.Db.QueryContext(context.Background(), listQuery, queryArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -108,6 +94,18 @@ func (d *Database) ReadC2CItemGroups(page, pageSize int, filterName string, sort
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, err
+	}
+
+	totalDuration := time.Since(startedAt)
+	if totalDuration >= 100*time.Millisecond {
+		log.Warn().
+			Dur("duration", totalDuration).
+			Dur("countDuration", countDuration).
+			Dur("listDuration", time.Since(listStartedAt)).
+			Int("page", page).
+			Int("pageSize", pageSize).
+			Int("total", totalCount).
+			Msg("slow catalog group query")
 	}
 
 	return items, totalCount, nil
@@ -308,20 +306,89 @@ func (d *Database) ReadAllC2CItemDetailsBySku(skuID int64) ([]CSCItem, error) {
 	return items, nil
 }
 
+type C2CItemStatusUpdate struct {
+	C2CItemsID       int64
+	NormalizedStatus string
+	CheckedAt        time.Time
+}
+
 func (d *Database) UpdateC2CItemStatus(c2cItemsID int64, normalizedStatus string, checkedAt time.Time) error {
-	_, err := d.Db.ExecContext(
-		context.Background(),
-		`UPDATE c2c_items
-		SET normalized_status = ?, status_checked_at = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE c2c_items_id = ?`,
-		normalizedStatus,
-		checkedAt,
-		c2cItemsID,
-	)
-	return err
+	return d.UpdateC2CItemStatuses([]C2CItemStatusUpdate{{
+		C2CItemsID:       c2cItemsID,
+		NormalizedStatus: normalizedStatus,
+		CheckedAt:        checkedAt,
+	}})
+}
+
+func (d *Database) UpdateC2CItemStatuses(updates []C2CItemStatusUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	if err := d.EnsureCatalogReadModel(); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	tx, err := d.Db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	affected := make(map[int64]struct{})
+	for _, update := range updates {
+		var skuID sql.NullInt64
+		queryErr := tx.QueryRowContext(ctx, `SELECT sku_id FROM c2c_items WHERE c2c_items_id = ?`, update.C2CItemsID).Scan(&skuID)
+		if queryErr != nil && queryErr != sql.ErrNoRows {
+			return queryErr
+		}
+		if skuID.Valid && skuID.Int64 > 0 {
+			affected[skuID.Int64] = struct{}{}
+		}
+		if _, err = tx.ExecContext(
+			ctx,
+			`UPDATE c2c_items
+			SET normalized_status = ?, status_checked_at = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE c2c_items_id = ?`,
+			update.NormalizedStatus,
+			update.CheckedAt,
+			update.C2CItemsID,
+		); err != nil {
+			return err
+		}
+	}
+	if err = refreshCatalogGroupsTx(ctx, tx, affected); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (d *Database) DeleteCSCItem(c2cItemsID int64) error {
-	_, err := d.Db.ExecContext(context.Background(), "DELETE FROM c2c_items WHERE c2c_items_id = ?", c2cItemsID)
-	return err
+	if err := d.EnsureCatalogReadModel(); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	tx, err := d.Db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	affected := make(map[int64]struct{})
+	var skuID sql.NullInt64
+	queryErr := tx.QueryRowContext(ctx, `SELECT sku_id FROM c2c_items WHERE c2c_items_id = ?`, c2cItemsID).Scan(&skuID)
+	if queryErr != nil && queryErr != sql.ErrNoRows {
+		return queryErr
+	}
+	if skuID.Valid && skuID.Int64 > 0 {
+		affected[skuID.Int64] = struct{}{}
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM c2c_items WHERE c2c_items_id = ?", c2cItemsID); err != nil {
+		return err
+	}
+	if err = refreshCatalogGroupsTx(ctx, tx, affected); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

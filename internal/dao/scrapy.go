@@ -3,6 +3,7 @@ package dao
 import (
 	"context"
 	"database/sql"
+
 	"github.com/kun4399/BiliShareMall/internal/domain"
 	"github.com/rs/zerolog/log"
 	"time"
@@ -283,7 +284,39 @@ type CSCItem struct {
 }
 
 func (d *Database) CreateCSCItem(item *CSCItem) (int64, error) {
-	result, err := d.Db.ExecContext(context.Background(),
+	if err := d.EnsureCatalogReadModel(); err != nil {
+		return 0, err
+	}
+
+	ctx := context.Background()
+	tx, err := d.Db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	affected := make(map[int64]struct{}, 2)
+	if err = collectExistingSkuID(ctx, tx, item.C2CItemsID, affected); err != nil {
+		return 0, err
+	}
+	rows, err := upsertCSCItemTx(ctx, tx, item)
+	if err != nil {
+		return 0, err
+	}
+	if item.SkuID > 0 {
+		affected[item.SkuID] = struct{}{}
+	}
+	if err = refreshCatalogGroupsTx(ctx, tx, affected); err != nil {
+		return 0, err
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+	return rows, nil
+}
+
+func upsertCSCItemTx(ctx context.Context, tx *sql.Tx, item *CSCItem) (int64, error) {
+	result, err := tx.ExecContext(ctx,
 		`INSERT INTO c2c_items (
 			c2c_items_id, type, c2c_items_name, detail_name, detail_img, sku_id, items_id, reference_price,
 			total_items_count, price, show_price, show_market_price, seller_uid, seller_name,
@@ -343,6 +376,18 @@ func (d *Database) CreateCSCItem(item *CSCItem) (int64, error) {
 	return result.RowsAffected()
 }
 
+func collectExistingSkuID(ctx context.Context, tx *sql.Tx, c2cItemsID int64, affected map[int64]struct{}) error {
+	var skuID sql.NullInt64
+	err := tx.QueryRowContext(ctx, `SELECT sku_id FROM c2c_items WHERE c2c_items_id = ?`, c2cItemsID).Scan(&skuID)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if skuID.Valid && skuID.Int64 > 0 {
+		affected[skuID.Int64] = struct{}{}
+	}
+	return nil
+}
+
 func (d *Database) SaveMailListToDB(response *domain.MailListResponse) int64 {
 	sum, err := d.SaveMailListToDBStrict(response)
 	if err != nil {
@@ -352,7 +397,22 @@ func (d *Database) SaveMailListToDB(response *domain.MailListResponse) int64 {
 }
 
 func (d *Database) SaveMailListToDBStrict(response *domain.MailListResponse) (int64, error) {
+	if response == nil || len(response.Data.Data) == 0 {
+		return 0, nil
+	}
+	if err := d.EnsureCatalogReadModel(); err != nil {
+		return 0, err
+	}
+
+	ctx := context.Background()
+	tx, err := d.Db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	sum := int64(0)
+	affected := make(map[int64]struct{})
 	for _, item := range response.Data.Data {
 		detailName, detailImg, skuID, itemsID, referencePrice := pickMarketDetail(item)
 		scrapyItem := CSCItem{
@@ -379,11 +439,23 @@ func (d *Database) SaveMailListToDBStrict(response *domain.MailListResponse) (in
 			NormalizedStatus: NormalizeMarketStatus(item.Status, item.SaleStatus, nil),
 		}
 
-		rows, err := d.CreateCSCItem(&scrapyItem)
-		if err != nil {
+		if err = collectExistingSkuID(ctx, tx, scrapyItem.C2CItemsID, affected); err != nil {
 			return sum, err
 		}
+		rows, upsertErr := upsertCSCItemTx(ctx, tx, &scrapyItem)
+		if upsertErr != nil {
+			return sum, upsertErr
+		}
+		if scrapyItem.SkuID > 0 {
+			affected[scrapyItem.SkuID] = struct{}{}
+		}
 		sum += rows
+	}
+	if err = refreshCatalogGroupsTx(ctx, tx, affected); err != nil {
+		return sum, err
+	}
+	if err = tx.Commit(); err != nil {
+		return sum, err
 	}
 	return sum, nil
 }
