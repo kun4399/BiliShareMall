@@ -50,12 +50,20 @@ export function GetRunningTaskIds() {
   return window['go']['app']['App']['GetRunningTaskIds']();
 }
 
+export function GetScrapyRuntimeStates() {
+  return window['go']['app']['App']['GetScrapyRuntimeStates']();
+}
+
 export function GetSharedLoginSession() {
   return window['go']['app']['App']['GetSharedLoginSession']();
 }
 
 export function HasRunningTasks() {
   return window['go']['app']['App']['HasRunningTasks']();
+}
+
+export function HealthCheck(arg1) {
+  return window['go']['app']['App']['HealthCheck'](arg1);
 }
 
 export function Initialize() {

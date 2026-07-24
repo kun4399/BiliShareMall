@@ -11,6 +11,7 @@ type MonitorRule = scrapysvc.MonitorRule
 type MonitorConfig = scrapysvc.MonitorConfig
 type MonitorHitItem = scrapysvc.MonitorHitItem
 type MonitorHitGroup = scrapysvc.MonitorHitGroup
+type ScrapyRuntimeState = scrapysvc.ScrapyRuntimeState
 
 func (a *App) ReadAllScrapyItems() []dao.ScrapyItem {
 	return a.getScrapyService().ReadAllScrapyItems()
@@ -42,6 +43,10 @@ func (a *App) GetNowRunTaskId() int {
 
 func (a *App) GetRunningTaskIds() []int {
 	return a.getScrapyService().GetRunningTaskIds()
+}
+
+func (a *App) GetScrapyRuntimeStates() []ScrapyRuntimeState {
+	return a.getScrapyService().GetScrapyRuntimeStates()
 }
 
 func (a *App) HasRunningTasks() bool {

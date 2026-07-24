@@ -49,6 +49,7 @@ type AppAPI interface {
 	StartTask(taskID int, cookies string) error
 	DoneTask(taskID int) error
 	GetRunningTaskIds() []int
+	GetScrapyRuntimeStates() []appcore.ScrapyRuntimeState
 	GetMarketRuntimeConfig(cookieStr string) appcore.MarketRuntimeConfig
 	GetMonitorConfig() appcore.MonitorConfig
 	SaveMonitorConfig(config appcore.MonitorConfig) error
@@ -134,6 +135,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/scrapy/tasks/{id}/stop", s.handleStopScrapyTask)
 	mux.HandleFunc("GET /api/scrapy/runtime-config", s.handleScrapyRuntimeConfig)
 	mux.HandleFunc("GET /api/scrapy/running-task-ids", s.handleRunningTaskIDs)
+	mux.HandleFunc("GET /api/scrapy/runtime-states", s.handleScrapyRuntimeStates)
 	mux.HandleFunc("GET /api/monitor/config", s.handleMonitorConfig)
 	mux.HandleFunc("PUT /api/monitor/config", s.handleSaveMonitorConfig)
 	mux.HandleFunc("GET /api/monitor/rule-hits", s.handleMonitorRuleHits)
@@ -464,6 +466,10 @@ func (s *Server) handleScrapyRuntimeConfig(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleRunningTaskIDs(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.api.GetRunningTaskIds())
+}
+
+func (s *Server) handleScrapyRuntimeStates(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.api.GetScrapyRuntimeStates())
 }
 
 func (s *Server) handleMonitorConfig(w http.ResponseWriter, _ *http.Request) {

@@ -3,6 +3,7 @@
 import {dao} from '../models';
 import {auth} from '../models';
 import {scrapy} from '../models';
+import {context} from '../models';
 import {catalog} from '../models';
 
 export function ClearAllLoginAccounts():Promise<void>;
@@ -29,9 +30,13 @@ export function GetNowRunTaskId():Promise<number>;
 
 export function GetRunningTaskIds():Promise<Array<number>>;
 
+export function GetScrapyRuntimeStates():Promise<Array<scrapy.ScrapyRuntimeState>>;
+
 export function GetSharedLoginSession():Promise<auth.SharedLoginSession>;
 
 export function HasRunningTasks():Promise<boolean>;
+
+export function HealthCheck(arg1:context.Context):Promise<void>;
 
 export function Initialize():Promise<void>;
 

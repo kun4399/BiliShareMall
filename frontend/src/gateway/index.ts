@@ -1,16 +1,17 @@
 /* eslint-disable class-methods-use-this, max-params, @typescript-eslint/no-invalid-void-type */
 import {
   ClearAllLoginAccounts as WailsClearAllLoginAccounts,
+  ClearSharedLoginSession as WailsClearSharedLoginSession,
   CreateScrapyItem as WailsCreateScrapyItem,
   DeleteLoginAccount as WailsDeleteLoginAccount,
   DeleteScrapyItem as WailsDeleteScrapyItem,
   DoneTask as WailsDoneTask,
-  ClearSharedLoginSession as WailsClearSharedLoginSession,
   GetC2CItemNameBySku as WailsGetC2CItemNameBySku,
   GetLoginKeyAndUrl as WailsGetLoginKeyAndUrl,
   GetMarketRuntimeConfig as WailsGetMarketRuntimeConfig,
   GetMonitorConfig as WailsGetMonitorConfig,
   GetRunningTaskIds as WailsGetRunningTaskIds,
+  GetScrapyRuntimeStates as WailsGetScrapyRuntimeStates,
   GetSharedLoginSession as WailsGetSharedLoginSession,
   ListC2CItem as WailsListC2CItem,
   ListC2CItemDetailBySku as WailsListC2CItemDetailBySku,
@@ -62,6 +63,7 @@ export interface AppGateway {
   StartTask(taskID: number, cookies: string): Promise<void>;
   DoneTask(taskID: number): Promise<void>;
   GetRunningTaskIds(): Promise<number[]>;
+  GetScrapyRuntimeStates(): Promise<scrapy.ScrapyRuntimeState[]>;
   GetMarketRuntimeConfig(cookieStr: string): Promise<scrapy.MarketRuntimeConfig>;
   GetMonitorConfig(): Promise<scrapy.MonitorConfig>;
   SaveMonitorConfig(config: scrapy.MonitorConfig): Promise<void>;
@@ -155,6 +157,10 @@ class WailsGateway implements AppGateway {
     return WailsGetRunningTaskIds();
   }
 
+  GetScrapyRuntimeStates() {
+    return WailsGetScrapyRuntimeStates();
+  }
+
   GetMarketRuntimeConfig(cookieStr: string) {
     return WailsGetMarketRuntimeConfig(cookieStr);
   }
@@ -210,6 +216,9 @@ class WebEventBridge {
   private ensureSource() {
     if (this.source) return;
     this.source = new EventSource('/api/events');
+    this.source.onopen = () => {
+      window.dispatchEvent(new CustomEvent('bsm-events-reconnected'));
+    };
     this.source.onerror = () => {
       // Let EventSource handle reconnects automatically.
     };
@@ -366,6 +375,10 @@ class WebGateway implements AppGateway {
     return fetchJSON<number[]>('/api/scrapy/running-task-ids');
   }
 
+  GetScrapyRuntimeStates() {
+    return fetchJSON<scrapy.ScrapyRuntimeState[]>('/api/scrapy/runtime-states');
+  }
+
   GetMarketRuntimeConfig(cookieStr: string) {
     return fetchJSON<scrapy.MarketRuntimeConfig>('/api/scrapy/runtime-config', {
       headers: cookieHeader(cookieStr)
@@ -474,6 +487,7 @@ export const UpdateScrapyTaskConfig = (taskID: number, accountID: number, reques
 export const StartTask = (taskID: number, cookies: string) => appGateway.StartTask(taskID, cookies);
 export const DoneTask = (taskID: number) => appGateway.DoneTask(taskID);
 export const GetRunningTaskIds = () => appGateway.GetRunningTaskIds();
+export const GetScrapyRuntimeStates = () => appGateway.GetScrapyRuntimeStates();
 export const GetMarketRuntimeConfig = (cookieStr: string) => appGateway.GetMarketRuntimeConfig(cookieStr);
 export const GetMonitorConfig = () => appGateway.GetMonitorConfig();
 export const SaveMonitorConfig = (config: scrapy.MonitorConfig) => appGateway.SaveMonitorConfig(config);

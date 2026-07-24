@@ -41,6 +41,19 @@ func (m *mockNotifier) SendMarkdown(_ context.Context, _ string, _ string, _ str
 	return m.lastErr
 }
 
+type blockingNotifier struct {
+	started chan struct{}
+}
+
+func (n *blockingNotifier) SendMarkdown(ctx context.Context, _ string, _ string, _ string) error {
+	select {
+	case n.started <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func TestServiceSupportsConcurrentTasksAndIndependentStop(t *testing.T) {
 	db := newScrapyTestDatabase(t)
 	insertScrapyTask(t, db, 1, "sku-a")
@@ -159,6 +172,100 @@ func TestServiceRetriesRequestErrorAndKeepsRunning(t *testing.T) {
 	}
 }
 
+func TestServiceStopDuringRequestIsNormalAndIdempotent(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+	insertScrapyTask(t, db, 1, "sku-a")
+
+	var eventsMu sync.Mutex
+	eventNames := make([]string, 0)
+	statuses := make([]ScrapyRuntimeState, 0)
+	svc := NewService(db, func(eventName string, payload any) {
+		eventsMu.Lock()
+		defer eventsMu.Unlock()
+		eventNames = append(eventNames, eventName)
+		if eventName == "scrapy_task_status" {
+			statuses = append(statuses, payload.(ScrapyRuntimeState))
+		}
+	})
+	svc.notifier = &mockNotifier{}
+	requestStarted := make(chan struct{}, 1)
+	svc.marketFn = func() (marketClient, error) {
+		return &mockMarketClient{
+			fn: func(ctx context.Context, _ bilihttp.MarketListRequest) (domain.MailListResponse, error) {
+				requestStarted <- struct{}{}
+				<-ctx.Done()
+				return domain.MailListResponse{}, ctx.Err()
+			},
+		}, nil
+	}
+
+	if err := svc.StartTask(1, "SESSDATA=a;DedeUserID=1;bili_jct=x"); err != nil {
+		t.Fatalf("StartTask error: %v", err)
+	}
+	select {
+	case <-requestStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for request")
+	}
+
+	if err := svc.DoneTask(1); err != nil {
+		t.Fatalf("DoneTask error: %v", err)
+	}
+	if err := svc.DoneTask(1); err != nil {
+		t.Fatalf("second DoneTask should be idempotent, got %v", err)
+	}
+
+	eventsMu.Lock()
+	defer eventsMu.Unlock()
+	if slices.Contains(eventNames, "scrapy_retry_wait") {
+		t.Fatal("normal stop must not emit retry event")
+	}
+	if slices.Contains(eventNames, "scrapy_failed") {
+		t.Fatal("normal stop must not emit failed event")
+	}
+	if len(statuses) == 0 || statuses[len(statuses)-1].State != "stopped" {
+		t.Fatalf("expected final stopped status, got %#v", statuses)
+	}
+}
+
+func TestServiceCanRestartImmediatelyAfterConfirmedStop(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+	insertScrapyTask(t, db, 1, "sku-a")
+
+	svc := NewService(db, nil)
+	svc.notifier = &mockNotifier{}
+	started := make(chan struct{}, 2)
+	svc.marketFn = func() (marketClient, error) {
+		return &mockMarketClient{
+			fn: func(ctx context.Context, _ bilihttp.MarketListRequest) (domain.MailListResponse, error) {
+				started <- struct{}{}
+				<-ctx.Done()
+				return domain.MailListResponse{}, ctx.Err()
+			},
+		}, nil
+	}
+
+	if err := svc.StartTask(1, "SESSDATA=a;DedeUserID=1;bili_jct=x"); err != nil {
+		t.Fatalf("first StartTask error: %v", err)
+	}
+	<-started
+	firstRunID := svc.GetScrapyRuntimeStates()[0].RunID
+	if err := svc.DoneTask(1); err != nil {
+		t.Fatalf("first DoneTask error: %v", err)
+	}
+	if err := svc.StartTask(1, "SESSDATA=a;DedeUserID=1;bili_jct=x"); err != nil {
+		t.Fatalf("second StartTask error: %v", err)
+	}
+	<-started
+	secondRunID := svc.GetScrapyRuntimeStates()[0].RunID
+	if secondRunID <= firstRunID {
+		t.Fatalf("expected increasing run ID, got first=%d second=%d", firstRunID, secondRunID)
+	}
+	if err := svc.DoneTask(1); err != nil {
+		t.Fatalf("second DoneTask error: %v", err)
+	}
+}
+
 func TestServiceUsesLongBackoffForRateLimit(t *testing.T) {
 	db := newScrapyTestDatabase(t)
 	insertScrapyTask(t, db, 1, "sku-a")
@@ -200,6 +307,52 @@ func TestServiceUsesLongBackoffForRateLimit(t *testing.T) {
 
 	if err := svc.DoneTask(1); err != nil {
 		t.Fatalf("DoneTask error: %v", err)
+	}
+	waitUntil(t, 2*time.Second, func() bool {
+		return len(svc.GetRunningTaskIds()) == 0
+	})
+}
+
+func TestServiceStopsWithActionableErrorWhenLoginExpires(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+	insertScrapyTask(t, db, 1, "sku-a")
+
+	failed := make(chan ScrapyRuntimeState, 1)
+	svc := NewService(db, func(eventName string, payload any) {
+		if eventName != "scrapy_task_status" {
+			return
+		}
+		state := payload.(ScrapyRuntimeState)
+		if state.State == "failed" {
+			failed <- state
+		}
+	})
+	svc.notifier = &mockNotifier{}
+	svc.marketFn = func() (marketClient, error) {
+		return &mockMarketClient{
+			fn: func(context.Context, bilihttp.MarketListRequest) (domain.MailListResponse, error) {
+				return domain.MailListResponse{}, &bilihttp.APIError{
+					Kind:    bilihttp.ErrKindUnauthorized,
+					Code:    83001002,
+					Message: "login required",
+				}
+			},
+		}, nil
+	}
+
+	if err := svc.StartTask(1, "SESSDATA=a;DedeUserID=1;bili_jct=x"); err != nil {
+		t.Fatalf("StartTask error: %v", err)
+	}
+	select {
+	case state := <-failed:
+		if state.ReasonCode != "unauthorized" {
+			t.Fatalf("expected unauthorized reason, got %q", state.ReasonCode)
+		}
+		if !strings.Contains(state.Message, "重新登录") {
+			t.Fatalf("expected actionable login message, got %q", state.Message)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for failed state")
 	}
 	waitUntil(t, 2*time.Second, func() bool {
 		return len(svc.GetRunningTaskIds()) == 0
@@ -528,7 +681,7 @@ func TestTrySendMonitorAlertsMatchesAnyDetailSkuAndRecordsSentEvent(t *testing.T
 		},
 	}
 
-	svc.trySendMonitorAlerts(7, []domain.MarketItem{item})
+	svc.trySendMonitorAlerts(context.Background(), 7, []domain.MarketItem{item})
 
 	if notify.calls != 1 {
 		t.Fatalf("expected notifier called once, got %d", notify.calls)
@@ -557,6 +710,57 @@ func TestTrySendMonitorAlertsMatchesAnyDetailSkuAndRecordsSentEvent(t *testing.T
 	}
 	if events[0].SkuID != 2002 {
 		t.Fatalf("expected sku 2002, got %d", events[0].SkuID)
+	}
+}
+
+func TestTrySendMonitorAlertsStopsWithTaskContext(t *testing.T) {
+	db := newScrapyTestDatabase(t)
+	notifier := &blockingNotifier{started: make(chan struct{}, 1)}
+	svc := NewService(db, nil)
+	svc.notifier = notifier
+	if err := db.SaveMonitorConfig(dao.MonitorConfig{
+		Webhook: "https://oapi.dingtalk.com/robot/send?access_token=abc",
+		Rules: []dao.MonitorRule{
+			{SkuID: 2002, MinPrice: 1000, MaxPrice: 2000, Enabled: true},
+		},
+	}); err != nil {
+		t.Fatalf("SaveMonitorConfig error: %v", err)
+	}
+
+	item := domain.MarketItem{
+		C2CItemsID:   9002,
+		C2CItemsName: "商品B",
+		Price:        1500,
+		DetailDtoList: []struct {
+			BlindBoxID  int    `json:"blindBoxId"`
+			ItemsID     int    `json:"itemsId"`
+			SkuID       int    `json:"skuId"`
+			Name        string `json:"name"`
+			Img         string `json:"img"`
+			MarketPrice int    `json:"marketPrice"`
+			Type        int    `json:"type"`
+			IsHidden    bool   `json:"isHidden"`
+		}{
+			{SkuID: 2002, Name: "规格-2"},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	finished := make(chan struct{})
+	go func() {
+		svc.trySendMonitorAlerts(ctx, 8, []domain.MarketItem{item})
+		close(finished)
+	}()
+	select {
+	case <-notifier.started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for notifier")
+	}
+	cancel()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("monitor notification did not stop with task context")
 	}
 }
 
@@ -609,7 +813,7 @@ func TestTrySendMonitorAlertsOnSendFailureReleasesReservationAndStoresFailedEven
 		},
 	}
 
-	svc.trySendMonitorAlerts(8, []domain.MarketItem{item})
+	svc.trySendMonitorAlerts(context.Background(), 8, []domain.MarketItem{item})
 
 	var historyCount int
 	if err := db.Db.QueryRow(

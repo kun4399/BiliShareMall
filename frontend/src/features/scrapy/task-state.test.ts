@@ -29,7 +29,7 @@ test('manual start clears stale failure state', () => {
   const failed = applyTaskUiStateTransition(undefined, { type: 'failed', at: 100 });
   const restarted = applyTaskUiStateTransition(failed, { type: 'start', at: 150 });
 
-  assert.equal(restarted.kind, 'running');
+  assert.equal(restarted.kind, 'starting');
   assert.equal(restarted.retrySeconds, 0);
   assert.equal(restarted.retryReason, '');
 });
@@ -52,4 +52,71 @@ test('repeated transitions keep a single coherent state payload', () => {
   assert.equal(secondRetry.retrySeconds, 5);
   assert.equal(secondRetry.retryReason, 'timeout');
   assert.equal(secondRetry.lastUpdatedAt, 300);
+});
+
+test('runtime events from an older run cannot overwrite the current task state', () => {
+  const current = applyTaskUiStateTransition(undefined, {
+    type: 'runtime',
+    payload: {
+      taskId: 1,
+      runId: 2,
+      state: 'running',
+      phase: 'requesting',
+      retryAt: 0,
+      reasonCode: '',
+      message: '正在获取商品数据',
+      updatedAt: 300,
+      lastSuccessAt: 0,
+      completedPages: 0,
+      completedRounds: 0
+    }
+  });
+  const stale = applyTaskUiStateTransition(current, {
+    type: 'runtime',
+    payload: {
+      taskId: 1,
+      runId: 1,
+      state: 'failed',
+      phase: 'failed',
+      retryAt: 0,
+      reasonCode: 'request_failed',
+      message: '旧任务失败',
+      updatedAt: 400,
+      lastSuccessAt: 0,
+      completedPages: 0,
+      completedRounds: 0
+    }
+  });
+
+  assert.equal(stale.runId, 2);
+  assert.equal(stale.kind, 'running');
+  assert.equal(stale.message, '正在获取商品数据');
+});
+
+test('authoritative stopped runtime state clears retry information', () => {
+  const retrying = applyTaskUiStateTransition(undefined, {
+    type: 'retry_wait',
+    seconds: 60,
+    reason: '限流'
+  });
+  const stopped = applyTaskUiStateTransition(retrying, {
+    type: 'runtime',
+    payload: {
+      taskId: 1,
+      runId: 1,
+      state: 'stopped',
+      phase: 'stopped',
+      retryAt: 0,
+      reasonCode: '',
+      message: '任务已停止',
+      updatedAt: 500,
+      lastSuccessAt: 0,
+      completedPages: 3,
+      completedRounds: 1
+    }
+  });
+
+  assert.equal(stopped.kind, 'idle');
+  assert.equal(stopped.retrySeconds, 0);
+  assert.equal(stopped.retryReason, '');
 });

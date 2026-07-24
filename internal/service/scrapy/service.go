@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kun4399/BiliShareMall/internal/dao"
@@ -23,6 +25,8 @@ const (
 	rateLimitRetryDelay           = 60 * time.Second
 	maximumRateLimitRetryDelay    = 15 * time.Minute
 	taskRestartRoundDelay         = 1 * time.Second
+	taskStopTimeout               = 10 * time.Second
+	monitorNotificationTimeout    = 8 * time.Second
 	defaultMonitorHitLimitPerRule = 20
 
 	monitorAlertStatusSent   = "sent"
@@ -31,10 +35,27 @@ const (
 
 type TaskRuntime struct {
 	taskID          int
+	runID           uint64
 	accountID       int64
 	cookies         string
 	requestInterval time.Duration
 	cancel          context.CancelFunc
+	done            chan struct{}
+	stopping        bool
+}
+
+type ScrapyRuntimeState struct {
+	TaskID          int    `json:"taskId"`
+	RunID           uint64 `json:"runId"`
+	State           string `json:"state"`
+	Phase           string `json:"phase"`
+	RetryAt         int64  `json:"retryAt"`
+	ReasonCode      string `json:"reasonCode"`
+	Message         string `json:"message"`
+	UpdatedAt       int64  `json:"updatedAt"`
+	LastSuccessAt   int64  `json:"lastSuccessAt"`
+	CompletedPages  int    `json:"completedPages"`
+	CompletedRounds int    `json:"completedRounds"`
 }
 
 type MarketFilterOption struct {
@@ -120,7 +141,9 @@ type Service struct {
 	wg sync.WaitGroup
 	mu sync.Mutex
 
-	runningTasks map[int]*TaskRuntime
+	runningTasks  map[int]*TaskRuntime
+	runtimeStates map[int]ScrapyRuntimeState
+	runSequence   atomic.Uint64
 }
 
 func NewService(database *dao.Database, emit EventEmitter) *Service {
@@ -135,6 +158,7 @@ func NewService(database *dao.Database, emit EventEmitter) *Service {
 		requestInterval:   taskRequestInterval,
 		restartRoundDelay: taskRestartRoundDelay,
 		runningTasks:      map[int]*TaskRuntime{},
+		runtimeStates:     map[int]ScrapyRuntimeState{},
 	}
 }
 
@@ -155,6 +179,9 @@ func (s *Service) DeleteScrapyItem(id int) error {
 		log.Error().Err(err).Msg("error deleting scrapy item")
 		return err
 	}
+	s.mu.Lock()
+	delete(s.runtimeStates, id)
+	s.mu.Unlock()
 	return nil
 }
 
@@ -194,7 +221,11 @@ func (s *Service) StartTask(taskID int, cookies string) error {
 
 	s.mu.Lock()
 	if running := s.runningTasks[taskID]; running != nil && running.cancel != nil {
+		stopping := running.stopping
 		s.mu.Unlock()
+		if stopping {
+			return fmt.Errorf("task is stopping, please wait")
+		}
 		return fmt.Errorf("task already running")
 	}
 
@@ -208,19 +239,35 @@ func (s *Service) StartTask(taskID int, cookies string) error {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	s.runningTasks[taskID] = &TaskRuntime{
+	runID := s.runSequence.Add(1)
+	runtime := &TaskRuntime{
 		taskID:          taskID,
+		runID:           runID,
 		accountID:       scrapyItem.AccountID,
 		cookies:         resolvedCookies,
 		requestInterval: requestInterval,
 		cancel:          cancel,
+		done:            make(chan struct{}),
 	}
+	s.runningTasks[taskID] = runtime
+	initialState := ScrapyRuntimeState{
+		TaskID:          taskID,
+		RunID:           runID,
+		State:           "starting",
+		Phase:           "initializing",
+		Message:         "正在启动任务",
+		UpdatedAt:       time.Now().UnixMilli(),
+		CompletedPages:  scrapyItem.Nums,
+		CompletedRounds: scrapyItem.IncreaseNumber,
+	}
+	s.runtimeStates[taskID] = initialState
 	s.mu.Unlock()
 
 	s.emitEvent("updateScrapyItem", scrapyItem)
+	s.emitEvent("scrapy_task_status", initialState)
 
 	s.wg.Add(1)
-	go s.scrapyLoop(taskID, resolvedCookies, requestInterval, ctx)
+	go s.scrapyLoop(runtime, ctx)
 	return nil
 }
 
@@ -252,13 +299,35 @@ func (s *Service) UpdateScrapyTaskConfig(taskID int, accountID int64, requestInt
 func (s *Service) DoneTask(taskID int) error {
 	s.mu.Lock()
 	runtime := s.runningTasks[taskID]
-	s.mu.Unlock()
-
 	if runtime == nil || runtime.cancel == nil {
-		return fmt.Errorf("task not running")
+		s.mu.Unlock()
+		return nil
 	}
-	runtime.cancel()
-	return nil
+	if !runtime.stopping {
+		runtime.stopping = true
+		state := s.runtimeStates[taskID]
+		state.State = "stopping"
+		state.Phase = "stopping"
+		state.RetryAt = 0
+		state.ReasonCode = ""
+		state.Message = "正在停止任务"
+		state.UpdatedAt = time.Now().UnixMilli()
+		s.runtimeStates[taskID] = state
+		s.mu.Unlock()
+		s.emitEvent("scrapy_task_status", state)
+		runtime.cancel()
+	} else {
+		s.mu.Unlock()
+	}
+
+	timer := time.NewTimer(taskStopTimeout)
+	defer timer.Stop()
+	select {
+	case <-runtime.done:
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("task stop timed out")
+	}
 }
 
 func (s *Service) GetNowRunTaskId() int {
@@ -281,6 +350,20 @@ func (s *Service) GetRunningTaskIds() []int {
 	}
 	sort.Ints(ids)
 	return ids
+}
+
+func (s *Service) GetScrapyRuntimeStates() []ScrapyRuntimeState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	states := make([]ScrapyRuntimeState, 0, len(s.runtimeStates))
+	for _, state := range s.runtimeStates {
+		states = append(states, state)
+	}
+	sort.Slice(states, func(i, j int) bool {
+		return states[i].TaskID < states[j].TaskID
+	})
+	return states
 }
 
 func (s *Service) HasRunningTasks() bool {
@@ -323,7 +406,13 @@ func (s *Service) GetMarketRuntimeConfig(cookieStr string) MarketRuntimeConfig {
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to load remote market config, using fallback")
 		fallback := bilihttp.DefaultMarketRuntimeConfig()
-		fallback.Message = err.Error()
+		if errors.Is(err, bilihttp.ErrMarketRequestDeferred) ||
+			errors.Is(err, context.DeadlineExceeded) ||
+			errors.Is(err, context.Canceled) {
+			fallback.Message = "当前请求通道繁忙，已使用内置筛选配置"
+		} else {
+			fallback.Message = "远程筛选配置暂时不可用，已使用内置配置"
+		}
 		return toRuntimeConfig(fallback)
 	}
 	return toRuntimeConfig(config)
@@ -396,67 +485,142 @@ func (s *Service) ListMonitorRuleHits(limitPerRule int) []MonitorHitGroup {
 	return groups
 }
 
-func (s *Service) scrapyLoop(taskID int, cookies string, requestInterval time.Duration, ctx context.Context) {
+func (s *Service) scrapyLoop(runtime *TaskRuntime, ctx context.Context) {
 	defer s.wg.Done()
-	defer s.unregisterTask(taskID)
+	defer close(runtime.done)
+	defer s.unregisterTask(runtime.taskID, runtime.runID)
+
+	taskID := runtime.taskID
+	runID := runtime.runID
 
 	scrapyItem, err := s.d.ReadScrapyItem(taskID)
 	if err != nil {
 		s.emitEvent("scrapyItem_get_failed", taskID)
+		s.failTask(taskID, runID, "task_read_failed", "读取任务配置失败")
 		return
 	}
 
 	scrapyItem.NextToken = normalizeNextToken(scrapyItem.NextToken)
 	client, err := s.marketFn()
 	if err != nil {
-		log.Error().Err(err).Int("taskID", taskID).Msg("failed to create market client")
+		log.Error().Err(err).Int("taskID", taskID).Uint64("runID", runID).Msg("failed to create market client")
+		s.failTask(taskID, runID, "client_initialization_failed", "初始化网络客户端失败")
 		s.emitEvent("scrapy_failed", taskID)
 		return
 	}
-	session := bilihttp.ParseBiliSession(cookies)
+	session := bilihttp.ParseBiliSession(runtime.cookies)
 	consecutiveRateLimits := 0
+	retryCount := 0
 	for {
 		if ctx.Err() != nil {
-			log.Info().Int("taskID", taskID).Msg("scrapy task canceled")
+			s.stopTask(taskID, runID)
 			return
 		}
 
-		roundFinished, err := s.scrapyTaskWithClient(ctx, taskID, client, session, &scrapyItem)
+		s.updateRuntimeState(taskID, runID, func(state *ScrapyRuntimeState) {
+			state.State = "running"
+			state.Phase = "requesting"
+			state.RetryAt = 0
+			state.ReasonCode = ""
+			state.Message = "正在获取商品数据"
+		})
+		requestCtx := bilihttp.WithMarketRequestWaitObserver(ctx, func(info bilihttp.MarketRequestWaitInfo) {
+			log.Debug().
+				Int("taskID", taskID).
+				Uint64("runID", runID).
+				Int64("accountID", runtime.accountID).
+				Str("phase", "rate_limit_queue").
+				Int64("waitMs", info.Wait.Milliseconds()).
+				Msg("scrapy task waiting for safe request slot")
+			s.updateRuntimeState(taskID, runID, func(state *ScrapyRuntimeState) {
+				state.State = "queued"
+				state.Phase = "rate_limit_queue"
+				state.RetryAt = time.Now().Add(info.Wait).UnixMilli()
+				state.ReasonCode = ""
+				state.Message = fmt.Sprintf("安全排队中，预计等待 %d 秒", durationSecondsCeil(info.Wait))
+			})
+		})
+		roundFinished, err := s.scrapyTaskWithClient(requestCtx, taskID, client, session, &scrapyItem)
 		if err != nil {
-			var retryErr *requestRetryableError
-			if errors.As(err, &retryErr) {
-				delay := s.retryDelay
-				if bilihttp.IsRateLimitError(retryErr) {
-					consecutiveRateLimits++
-					delay = rateLimitBackoff(consecutiveRateLimits, bilihttp.RetryAfter(retryErr))
-				} else {
-					consecutiveRateLimits = 0
-				}
-				s.emitEvent("scrapy_retry_wait", ScrapyRetryEvent{
-					TaskID:  taskID,
-					Seconds: durationSecondsCeil(delay),
-					Reason:  retryErr.Error(),
-				})
-				s.emitEvent("scrapy_wait", durationSecondsCeil(delay))
-				if !sleepWithContext(ctx, delay) {
-					return
-				}
-				continue
+			if ctx.Err() != nil {
+				s.stopTask(taskID, runID)
+				return
 			}
 
-			log.Error().Err(err).Int("taskID", taskID).Msg("scrapy task failed")
-			s.emitEvent("scrapy_failed", taskID)
-			return
+			classification := classifyScrapyTaskError(err)
+			if !classification.retryable {
+				log.Error().
+					Err(err).
+					Int("taskID", taskID).
+					Uint64("runID", runID).
+					Str("errorKind", classification.code).
+					Msg("scrapy task failed")
+				s.failTask(taskID, runID, classification.code, classification.message)
+				s.emitEvent("scrapy_failed", taskID)
+				return
+			}
+
+			delay := s.retryDelay
+			if classification.code == "rate_limited" {
+				consecutiveRateLimits++
+				delay = rateLimitBackoff(consecutiveRateLimits, bilihttp.RetryAfter(err))
+			} else {
+				consecutiveRateLimits = 0
+			}
+			retryCount++
+			retryAt := time.Now().Add(delay)
+			s.updateRuntimeState(taskID, runID, func(state *ScrapyRuntimeState) {
+				state.State = "retrying"
+				state.Phase = "retry_wait"
+				state.RetryAt = retryAt.UnixMilli()
+				state.ReasonCode = classification.code
+				state.Message = classification.message
+			})
+			log.Warn().
+				Err(err).
+				Int("taskID", taskID).
+				Uint64("runID", runID).
+				Int("retryCount", retryCount).
+				Str("errorKind", classification.code).
+				Dur("retryDelay", delay).
+				Msg("scrapy request will retry")
+			s.emitEvent("scrapy_retry_wait", ScrapyRetryEvent{
+				TaskID:  taskID,
+				Seconds: durationSecondsCeil(delay),
+				Reason:  classification.message,
+			})
+			s.emitEvent("scrapy_wait", durationSecondsCeil(delay))
+			if !sleepWithContext(ctx, delay) {
+				s.stopTask(taskID, runID)
+				return
+			}
+			continue
 		}
 		consecutiveRateLimits = 0
+		retryCount = 0
+		s.updateRuntimeState(taskID, runID, func(state *ScrapyRuntimeState) {
+			state.State = "running"
+			state.Phase = "persisted"
+			state.RetryAt = 0
+			state.ReasonCode = ""
+			state.Message = "本页抓取成功"
+			state.LastSuccessAt = time.Now().UnixMilli()
+			state.CompletedPages = scrapyItem.Nums
+			state.CompletedRounds = scrapyItem.IncreaseNumber
+		})
 
 		if roundFinished {
 			scrapyItem.IncreaseNumber++
 			if _, err := s.d.UpdateScrapyItem(&scrapyItem); err != nil {
-				log.Error().Err(err).Int("taskID", taskID).Msg("failed to persist scrapy round count")
+				log.Error().Err(err).Int("taskID", taskID).Uint64("runID", runID).Msg("failed to persist scrapy round count")
+				s.failTask(taskID, runID, "database_write_failed", "保存任务进度失败")
 				s.emitEvent("scrapy_failed", taskID)
 				return
 			}
+			s.updateRuntimeState(taskID, runID, func(state *ScrapyRuntimeState) {
+				state.CompletedRounds = scrapyItem.IncreaseNumber
+				state.Message = "本轮抓取完成"
+			})
 			s.emitEvent("updateScrapyItem", scrapyItem)
 			s.emitEvent("scrapy_round_finished", ScrapyRoundEvent{
 				TaskID:      taskID,
@@ -466,12 +630,14 @@ func (s *Service) scrapyLoop(taskID int, cookies string, requestInterval time.Du
 			s.emitEvent("scrapy_finished", taskID)
 			scrapyItem.NextToken = nil
 			if !sleepWithContext(ctx, s.restartRoundDelay) {
+				s.stopTask(taskID, runID)
 				return
 			}
 			continue
 		}
 
-		if !sleepWithContext(ctx, requestInterval) {
+		if !sleepWithContext(ctx, runtime.requestInterval) {
+			s.stopTask(taskID, runID)
 			return
 		}
 	}
@@ -494,6 +660,9 @@ func (s *Service) scrapyTaskWithClient(ctx context.Context, taskID int, client m
 		CategoryFilter:  item.Product,
 	})
 	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
 		return false, &requestRetryableError{cause: err}
 	}
 
@@ -516,11 +685,11 @@ func (s *Service) scrapyTaskWithClient(ctx context.Context, taskID int, client m
 		})
 	}
 
-	s.trySendMonitorAlerts(taskID, resp.Data.Data)
+	s.trySendMonitorAlerts(ctx, taskID, resp.Data.Data)
 	return item.NextToken == nil, nil
 }
 
-func (s *Service) trySendMonitorAlerts(taskID int, items []domain.MarketItem) {
+func (s *Service) trySendMonitorAlerts(ctx context.Context, taskID int, items []domain.MarketItem) {
 	if len(items) == 0 {
 		return
 	}
@@ -549,6 +718,9 @@ func (s *Service) trySendMonitorAlerts(taskID int, items []domain.MarketItem) {
 	}
 
 	for _, item := range items {
+		if ctx.Err() != nil {
+			return
+		}
 		candidateDetails := pickMonitorCandidates(item)
 		if len(candidateDetails) == 0 {
 			continue
@@ -560,6 +732,9 @@ func (s *Service) trySendMonitorAlerts(taskID int, items []domain.MarketItem) {
 				continue
 			}
 			for _, rule := range candidates {
+				if ctx.Err() != nil {
+					return
+				}
 				if _, duplicated := seenRules[rule.ID]; duplicated {
 					continue
 				}
@@ -582,9 +757,14 @@ func (s *Service) trySendMonitorAlerts(taskID int, items []domain.MarketItem) {
 				displayPrice := normalizeDisplayPrice(item.ShowPrice, item.Price)
 				itemLink := buildItemLink(item.C2CItemsID)
 				text := buildDingTalkMarkdown(name, displayPrice, itemLink)
-				sendErr := s.notifier.SendMarkdown(context.Background(), webhook, "市集助手", text)
+				notifyCtx, cancel := context.WithTimeout(ctx, monitorNotificationTimeout)
+				sendErr := s.notifier.SendMarkdown(notifyCtx, webhook, "市集助手", text)
+				cancel()
 				if sendErr != nil {
 					_ = s.d.ReleaseMonitorAlertReservation(rule.ID, item.C2CItemsID)
+					if ctx.Err() != nil {
+						return
+					}
 					s.recordAndEmitMonitorHit(dao.MonitorAlertEvent{
 						RuleID:       rule.ID,
 						C2CItemsID:   item.C2CItemsID,
@@ -627,10 +807,13 @@ func (s *Service) emitEvent(eventName string, payload any) {
 	s.emit(eventName, payload)
 }
 
-func (s *Service) unregisterTask(taskID int) {
+func (s *Service) unregisterTask(taskID int, runID uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.runningTasks, taskID)
+	runtime := s.runningTasks[taskID]
+	if runtime != nil && runtime.runID == runID {
+		delete(s.runningTasks, taskID)
+	}
 }
 
 func (s *Service) isTaskRunning(taskID int) bool {
@@ -638,6 +821,99 @@ func (s *Service) isTaskRunning(taskID int) bool {
 	defer s.mu.Unlock()
 	runtime := s.runningTasks[taskID]
 	return runtime != nil && runtime.cancel != nil
+}
+
+func (s *Service) updateRuntimeState(taskID int, runID uint64, update func(*ScrapyRuntimeState)) {
+	s.mu.Lock()
+	state, ok := s.runtimeStates[taskID]
+	if !ok || state.RunID != runID {
+		s.mu.Unlock()
+		return
+	}
+	update(&state)
+	state.UpdatedAt = time.Now().UnixMilli()
+	s.runtimeStates[taskID] = state
+	s.mu.Unlock()
+	s.emitEvent("scrapy_task_status", state)
+}
+
+func (s *Service) stopTask(taskID int, runID uint64) {
+	log.Info().Int("taskID", taskID).Uint64("runID", runID).Str("phase", "stopped").Msg("scrapy task stopped")
+	s.updateRuntimeState(taskID, runID, func(state *ScrapyRuntimeState) {
+		state.State = "stopped"
+		state.Phase = "stopped"
+		state.RetryAt = 0
+		state.ReasonCode = ""
+		state.Message = "任务已停止"
+	})
+}
+
+func (s *Service) failTask(taskID int, runID uint64, code string, message string) {
+	s.updateRuntimeState(taskID, runID, func(state *ScrapyRuntimeState) {
+		state.State = "failed"
+		state.Phase = "failed"
+		state.RetryAt = 0
+		state.ReasonCode = code
+		state.Message = message
+	})
+}
+
+type scrapyTaskErrorClassification struct {
+	code      string
+	message   string
+	retryable bool
+}
+
+func classifyScrapyTaskError(err error) scrapyTaskErrorClassification {
+	if bilihttp.IsRateLimitError(err) {
+		return scrapyTaskErrorClassification{
+			code:      "rate_limited",
+			message:   "B站请求频率受限，任务会自动等待后重试",
+			retryable: true,
+		}
+	}
+	if bilihttp.IsAPIErrorKind(err, bilihttp.ErrKindUnauthorized) {
+		return scrapyTaskErrorClassification{
+			code:    "unauthorized",
+			message: "登录状态已失效，请重新登录或更换账号",
+		}
+	}
+
+	var statusErr *bilihttp.HTTPStatusError
+	if errors.As(err, &statusErr) {
+		switch statusErr.StatusCode {
+		case 401, 403:
+			return scrapyTaskErrorClassification{
+				code:    "unauthorized",
+				message: "登录状态已失效或当前账号无权访问",
+			}
+		case 400, 404, 405, 422:
+			return scrapyTaskErrorClassification{
+				code:    "invalid_request",
+				message: "爬取配置无效，请检查筛选条件后重试",
+			}
+		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return scrapyTaskErrorClassification{
+			code:      "timeout",
+			message:   "网络请求超时，任务会自动重试",
+			retryable: true,
+		}
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return scrapyTaskErrorClassification{
+			code:      "network",
+			message:   "网络连接暂时不可用，任务会自动重试",
+			retryable: true,
+		}
+	}
+	return scrapyTaskErrorClassification{
+		code:      "request_failed",
+		message:   "请求暂时失败，任务会自动重试",
+		retryable: true,
+	}
 }
 
 func toRuntimeConfig(config domain.MarketRuntimeConfig) MarketRuntimeConfig {

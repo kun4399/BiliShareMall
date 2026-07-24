@@ -449,7 +449,39 @@ export namespace scrapy {
 		    return a;
 		}
 	}
-	
+
+
+	export class ScrapyRuntimeState {
+	    taskId: number;
+	    runId: number;
+	    state: string;
+	    phase: string;
+	    retryAt: number;
+	    reasonCode: string;
+	    message: string;
+	    updatedAt: number;
+	    lastSuccessAt: number;
+	    completedPages: number;
+	    completedRounds: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ScrapyRuntimeState(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
+	        this.runId = source["runId"];
+	        this.state = source["state"];
+	        this.phase = source["phase"];
+	        this.retryAt = source["retryAt"];
+	        this.reasonCode = source["reasonCode"];
+	        this.message = source["message"];
+	        this.updatedAt = source["updatedAt"];
+	        this.lastSuccessAt = source["lastSuccessAt"];
+	        this.completedPages = source["completedPages"];
+	        this.completedRounds = source["completedRounds"];
+	    }
+	}
 
 }
-

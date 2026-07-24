@@ -8,6 +8,7 @@ import {
   DoneTask,
   GetMarketRuntimeConfig,
   GetRunningTaskIds,
+  GetScrapyRuntimeStates,
   ListLoginAccounts,
   OnAppEvent,
   ReadAllScrapyItems,
@@ -16,12 +17,14 @@ import {
 } from '@/gateway';
 import { getToken } from '@/store/modules/auth/shared';
 import {
+  type TaskRuntimePayload,
+  type TaskUiEvent,
+  type TaskUiState,
   applyTaskUiStateTransition,
   createTaskUiState,
-  createTaskUiStateMap,
-  type TaskUiEvent,
-  type TaskUiState
+  createTaskUiStateMap
 } from './task-state';
+import { type TaskActionKind, type TaskActionMap, beginTaskAction, finishTaskAction } from './task-actions';
 
 interface ScrapyRetryEvent {
   taskId: number;
@@ -39,6 +42,7 @@ export function useScrapyTasks() {
   const loadingBar = useLoadingBar();
 
   const taskStateMap = ref<Record<number, TaskUiState>>({});
+  const pendingTaskActions = ref<TaskActionMap>({});
   const scrapyList = ref<dao.ScrapyItem[]>([]);
   const loginAccounts = ref<auth.LoginAccount[]>([]);
   const runningTaskIds = ref<number[]>([]);
@@ -96,6 +100,20 @@ export function useScrapyTasks() {
     return runningTaskIds.value.includes(taskID);
   }
 
+  function isTaskActionPending(taskID: number) {
+    return Boolean(pendingTaskActions.value[taskID]);
+  }
+
+  function acquireTaskAction(taskID: number, action: TaskActionKind) {
+    const result = beginTaskAction(pendingTaskActions.value, taskID, action);
+    pendingTaskActions.value = result.actions;
+    return result.accepted;
+  }
+
+  function releaseTaskAction(taskID: number) {
+    pendingTaskActions.value = finishTaskAction(pendingTaskActions.value, taskID);
+  }
+
   function addRunningTask(taskID: number) {
     if (isTaskRunning(taskID)) return;
     runningTaskIds.value = [...runningTaskIds.value, taskID].sort((a, b) => a - b);
@@ -116,13 +134,37 @@ export function useScrapyTasks() {
     if (!(taskID in taskStateMap.value)) {
       return;
     }
-    const next = { ...taskStateMap.value };
-    delete next[taskID];
-    taskStateMap.value = next;
+    taskStateMap.value = Object.fromEntries(
+      Object.entries(taskStateMap.value).filter(([currentTaskID]) => Number(currentTaskID) !== taskID)
+    );
   }
 
   function getTaskUiState(taskID: number) {
     return taskStateMap.value[taskID] || createTaskUiState();
+  }
+
+  function applyRuntimeState(payload: TaskRuntimePayload) {
+    const taskID = Number(payload.taskId || 0);
+    const runID = Number(payload.runId || 0);
+    if (!taskID || !runID) return;
+    const previous = getTaskUiState(taskID);
+    if (runID < previous.runId) return;
+
+    updateTaskState(taskID, { type: 'runtime', payload });
+    if (['starting', 'queued', 'running', 'retrying', 'stopping'].includes(payload.state)) {
+      addRunningTask(taskID);
+    } else {
+      removeRunningTask(taskID);
+    }
+  }
+
+  async function hydrateRuntimeStates() {
+    const states = await GetScrapyRuntimeStates();
+    states.forEach(state => applyRuntimeState(state as TaskRuntimePayload));
+  }
+
+  function acceptsLegacyStateEvent(taskID: number) {
+    return getTaskUiState(taskID).runId === 0;
   }
 
   async function loadRuntimeConfig() {
@@ -181,7 +223,9 @@ export function useScrapyTasks() {
 
   async function handleClose(idx: number) {
     const taskID = scrapyList.value[idx].id;
+    if (!acquireTaskAction(taskID, 'delete')) return;
     if (isTaskRunning(taskID)) {
+      releaseTaskAction(taskID);
       message.warning('请先停止该任务');
       return;
     }
@@ -195,12 +239,16 @@ export function useScrapyTasks() {
     } catch (err: any) {
       loadingBar.error();
       message.error(err?.message || '删除失败');
+    } finally {
+      releaseTaskAction(taskID);
     }
   }
 
   async function handleRun(idx: number) {
     const taskID = scrapyList.value[idx].id;
+    if (!acquireTaskAction(taskID, 'start')) return;
     if (isTaskRunning(taskID)) {
+      releaseTaskAction(taskID);
       message.warning('该任务已在运行');
       return;
     }
@@ -209,17 +257,22 @@ export function useScrapyTasks() {
       await StartTask(taskID, getToken());
       addRunningTask(taskID);
       updateTaskState(taskID, { type: 'start' });
+      await hydrateRuntimeStates();
       loadingBar.finish();
       message.success('启动成功');
     } catch (err: any) {
       loadingBar.error();
       message.error(err?.message || '启动失败');
+    } finally {
+      releaseTaskAction(taskID);
     }
   }
 
   async function handleSaveTaskConfig(taskID: number, accountID: number, requestIntervalSeconds: number) {
+    if (!acquireTaskAction(taskID, 'config')) return;
     const normalizedInterval = Number(requestIntervalSeconds.toFixed(1));
     if (normalizedInterval < 12) {
+      releaseTaskAction(taskID);
       message.warning('为避免触发 B 站限流，请求间隔不能小于 12 秒');
       return;
     }
@@ -229,20 +282,25 @@ export function useScrapyTasks() {
       message.success('配置已更新');
     } catch (err: any) {
       message.error(err?.message || '配置更新失败');
+    } finally {
+      releaseTaskAction(taskID);
     }
   }
 
   async function handleStop(taskID: number) {
+    if (!acquireTaskAction(taskID, 'stop')) return;
     loadingBar.start();
     try {
       await DoneTask(taskID);
-      removeRunningTask(taskID);
-      updateTaskState(taskID, { type: 'stop' });
+      await hydrateRuntimeStates();
       loadingBar.finish();
       message.success('已停止');
     } catch (err: any) {
       loadingBar.error();
       message.error(err?.message || '停止失败');
+      await hydrateRuntimeStates().catch(() => undefined);
+    } finally {
+      releaseTaskAction(taskID);
     }
   }
 
@@ -256,10 +314,16 @@ export function useScrapyTasks() {
 
   const unlisteners: Array<() => void> = [];
   const onAccountsUpdated = () => {
-    void loadLoginAccounts();
+    loadLoginAccounts().catch(() => undefined);
   };
 
   function setupEvents() {
+    unlisteners.push(
+      OnAppEvent('scrapy_task_status', payload => {
+        applyRuntimeState(payload as TaskRuntimePayload);
+      })
+    );
+
     unlisteners.push(
       OnAppEvent('updateScrapyItem', payload => {
         const item = dao.ScrapyItem.createFrom(payload);
@@ -272,9 +336,10 @@ export function useScrapyTasks() {
 
     unlisteners.push(
       OnAppEvent('scrapy_failed', payload => {
-        message.error('任务失败，请稍后重试');
         const id = parseTaskID(payload);
         if (!id) return;
+        if (!acceptsLegacyStateEvent(id)) return;
+        message.error('任务失败，请稍后重试');
         removeRunningTask(id);
         updateTaskState(id, { type: 'failed' });
       })
@@ -285,6 +350,7 @@ export function useScrapyTasks() {
         const event = payload as ScrapyRoundEvent;
         const id = parseTaskID(event);
         if (!id) return;
+        if (!acceptsLegacyStateEvent(id)) return;
         updateTaskState(id, {
           type: 'completed',
           at: Number(event.completedAt || Date.now())
@@ -296,6 +362,7 @@ export function useScrapyTasks() {
       OnAppEvent('scrapy_finished', payload => {
         const id = parseTaskID(payload);
         if (!id) return;
+        if (!acceptsLegacyStateEvent(id)) return;
         updateTaskState(id, { type: 'completed' });
       })
     );
@@ -305,6 +372,7 @@ export function useScrapyTasks() {
         const event = payload as ScrapyRetryEvent;
         const id = parseTaskID(event);
         if (!id) return;
+        if (!acceptsLegacyStateEvent(id)) return;
         addRunningTask(id);
         updateTaskState(id, {
           type: 'retry_wait',
@@ -318,6 +386,7 @@ export function useScrapyTasks() {
       OnAppEvent('scrapyItem_get_failed', payload => {
         const id = parseTaskID(payload);
         if (id) {
+          if (!acceptsLegacyStateEvent(id)) return;
           removeRunningTask(id);
           updateTaskState(id, { type: 'failed' });
         }
@@ -330,20 +399,29 @@ export function useScrapyTasks() {
     setupEvents();
     window.addEventListener('bsm-login-accounts-updated', onAccountsUpdated);
     loadingBar.start();
-    const [items, runningIds] = await Promise.all([
+    const [items, runningIds, runtimeStates] = await Promise.all([
       getAllItems(),
       GetRunningTaskIds(),
+      GetScrapyRuntimeStates(),
       loadLoginAccounts(),
       loadRuntimeConfig()
     ]);
     scrapyList.value = items;
     runningTaskIds.value = runningIds;
     taskStateMap.value = createTaskUiStateMap(runningTaskIds.value);
+    runtimeStates.forEach(state => applyRuntimeState(state as TaskRuntimePayload));
     loadingBar.finish();
   });
 
+  const onEventsReconnected = () => {
+    hydrateRuntimeStates().catch(() => undefined);
+  };
+
+  window.addEventListener('bsm-events-reconnected', onEventsReconnected);
+
   onUnmounted(() => {
     window.removeEventListener('bsm-login-accounts-updated', onAccountsUpdated);
+    window.removeEventListener('bsm-events-reconnected', onEventsReconnected);
     while (unlisteners.length > 0) {
       const unlisten = unlisteners.pop();
       if (unlisten) {
@@ -354,6 +432,7 @@ export function useScrapyTasks() {
 
   return {
     taskStateMap,
+    pendingTaskActions,
     scrapyList,
     runningTaskIds,
     runningCount,
@@ -369,6 +448,7 @@ export function useScrapyTasks() {
     discountFilterOptions,
     sourceNotice,
     isTaskRunning,
+    isTaskActionPending,
     getTaskUiState,
     getOptionLabel,
     getAccountLabelById,

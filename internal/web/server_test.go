@@ -30,6 +30,7 @@ type stubAPI struct {
 	lastDetailCookie        string
 	lastRuntimeConfigCookie string
 	accounts                []appcore.LoginAccount
+	runtimeStates           []appcore.ScrapyRuntimeState
 }
 
 func (s *stubAPI) HealthCheck(context.Context) error {
@@ -101,6 +102,9 @@ func (s *stubAPI) UpdateScrapyTaskConfig(taskID int, accountID int64, requestInt
 func (s *stubAPI) StartTask(taskID int, cookies string) error { return nil }
 func (s *stubAPI) DoneTask(taskID int) error                  { return nil }
 func (s *stubAPI) GetRunningTaskIds() []int                   { return []int{1, 2} }
+func (s *stubAPI) GetScrapyRuntimeStates() []appcore.ScrapyRuntimeState {
+	return append([]appcore.ScrapyRuntimeState(nil), s.runtimeStates...)
+}
 func (s *stubAPI) GetMarketRuntimeConfig(cookieStr string) appcore.MarketRuntimeConfig {
 	s.lastRuntimeConfigCookie = cookieStr
 	return appcore.MarketRuntimeConfig{}
@@ -161,6 +165,34 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"database":"ok"`) {
 		t.Fatalf("expected database health payload, got %s", recorder.Body.String())
+	}
+}
+
+func TestScrapyRuntimeStatesEndpoint(t *testing.T) {
+	server := newTestServer(t)
+	server.api.(*stubAPI).runtimeStates = []appcore.ScrapyRuntimeState{
+		{
+			TaskID:     7,
+			RunID:      3,
+			State:      "queued",
+			Phase:      "rate_limit_queue",
+			Message:    "安全排队中",
+			UpdatedAt:  1710000000000,
+			RetryAt:    1710000012000,
+			ReasonCode: "",
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/scrapy/runtime-states", nil)
+	recorder := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"taskId":7`) || !strings.Contains(body, `"state":"queued"`) {
+		t.Fatalf("unexpected runtime state payload: %s", body)
 	}
 }
 

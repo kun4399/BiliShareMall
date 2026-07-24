@@ -78,6 +78,7 @@ func (c *BiliClient) GetMarketRuntimeConfig(ctx context.Context, session *BiliSe
 	if session == nil {
 		return fallback, nil
 	}
+	ctx = WithMarketRequestPriority(ctx, MarketRequestLowPriority)
 	if err := session.EnsureFingerprint(ctx, c); err != nil {
 		return fallback, err
 	}

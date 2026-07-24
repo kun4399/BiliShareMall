@@ -17,6 +17,7 @@ const {
   discountFilterOptions,
   sourceNotice,
   isTaskRunning,
+  isTaskActionPending,
   getTaskUiState,
   getOptionLabel,
   getAccountLabelById,
@@ -45,7 +46,7 @@ const {
       {{ sourceNotice }}
     </NAlert>
 
-    <NCard class="card-wrapper bsm-surface-card" title="添加爬取任务" size="small" :bordered="false">
+    <NCard class="bsm-surface-card card-wrapper" title="添加爬取任务" size="small" :bordered="false">
       <template #header-extra>
         <NButton @click="addScrapy">
           <template #icon>
@@ -108,9 +109,7 @@ const {
     <NCard v-if="runningCount" class="running-card" title="运行中的任务" size="small" :bordered="false">
       <NSpace align="center" size="small">
         <NTag type="success" size="medium">运行中 {{ runningCount }} 个</NTag>
-        <NTag v-for="id in runningTaskIds" :key="id" type="info" round>
-          任务 #{{ id }}
-        </NTag>
+        <NTag v-for="id in runningTaskIds" :key="id" type="info" round>任务 #{{ id }}</NTag>
       </NSpace>
     </NCard>
 
@@ -124,6 +123,7 @@ const {
         :account-options="accountOptions"
         :task-state="getTaskUiState(scrapy.id)"
         :is-running="isTaskRunning(scrapy.id)"
+        :action-pending="isTaskActionPending(scrapy.id)"
         @close="handleClose(idx)"
         @run="handleRun(idx)"
         @stop="handleStop(scrapy.id)"

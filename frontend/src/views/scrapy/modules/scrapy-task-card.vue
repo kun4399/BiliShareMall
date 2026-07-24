@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { NButton, NCard, NIcon, NTag, NText, NTime } from 'naive-ui';
 import { Play, StopSharp } from '@vicons/ionicons5';
 import type { dao } from '~/wailsjs/go/models';
-import { describeTaskUiState, type TaskUiState } from '@/features/scrapy/task-state';
+import { type TaskUiState, describeTaskUiState } from '@/features/scrapy/task-state';
 
 defineOptions({
   name: 'ScrapyTaskCard'
@@ -16,6 +16,7 @@ const props = defineProps<{
   accountOptions: Array<{ label: string; value: number }>;
   taskState: TaskUiState;
   isRunning: boolean;
+  actionPending: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -57,11 +58,15 @@ const metricItems = computed(() => [
   },
   {
     label: '爬取次数',
-    value: String(props.task.nums || 0)
+    value: String(props.taskState.completedPages || props.task.nums || 0)
   },
   {
     label: '完成循环次数',
-    value: String(props.task.increaseNumber || 0)
+    value: String(props.taskState.completedRounds || props.task.increaseNumber || 0)
+  },
+  {
+    label: '最近成功',
+    value: props.taskState.lastSuccessAt ? new Date(props.taskState.lastSuccessAt).toLocaleTimeString() : '-'
   }
 ]);
 
@@ -74,7 +79,7 @@ function saveConfig() {
 </script>
 
 <template>
-  <NCard class="scrapy-task-card" size="small" closable :bordered="false" @close="emit('close')">
+  <NCard class="scrapy-task-card" size="small" :closable="!actionPending" :bordered="false" @close="emit('close')">
     <template #header>
       <div class="task-card-title">
         <span>{{ task.productName }}</span>
@@ -93,13 +98,27 @@ function saveConfig() {
           ghost
           circle
           size="medium"
+          aria-label="启动爬取任务"
+          :loading="actionPending"
+          :disabled="actionPending"
           @click="emit('run')"
         >
           <template #icon>
             <NIcon><Play /></NIcon>
           </template>
         </NButton>
-        <NButton v-else class="task-card-action" strong ghost circle size="medium" @click="emit('stop')">
+        <NButton
+          v-else
+          class="task-card-action"
+          strong
+          ghost
+          circle
+          size="medium"
+          aria-label="停止爬取任务"
+          :loading="actionPending"
+          :disabled="actionPending"
+          @click="emit('stop')"
+        >
           <template #icon>
             <NIcon><StopSharp /></NIcon>
           </template>
@@ -123,7 +142,13 @@ function saveConfig() {
       </div>
 
       <div class="task-config-row">
-        <NSelect v-model:value="selectedAccountId" :options="accountOptions" class="task-config-account" placeholder="选择账号" />
+        <NSelect
+          v-model:value="selectedAccountId"
+          :options="accountOptions"
+          class="task-config-account"
+          placeholder="选择账号"
+          :disabled="isRunning || actionPending"
+        />
         <NInputNumber
           v-model:value="requestIntervalSeconds"
           :min="12"
@@ -131,8 +156,17 @@ function saveConfig() {
           :precision="1"
           class="task-config-interval"
           placeholder="请求间隔，至少 12 秒"
+          :disabled="isRunning || actionPending"
         />
-        <NButton size="small" type="primary" :disabled="isRunning" @click="saveConfig">保存配置</NButton>
+        <NButton
+          size="small"
+          type="primary"
+          :loading="actionPending"
+          :disabled="isRunning || actionPending"
+          @click="saveConfig"
+        >
+          保存配置
+        </NButton>
       </div>
     </div>
   </NCard>
