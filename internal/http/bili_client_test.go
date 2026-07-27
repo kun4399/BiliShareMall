@@ -112,11 +112,13 @@ func TestParseBiliSessionExtractsCSRF(t *testing.T) {
 func TestCheckC2CItemUsesSessionAndPrice(t *testing.T) {
 	var gotQuery string
 	var gotBody string
+	var gotReferer string
 
 	client := &BiliClient{
 		httpClient: &nethttp.Client{
 			Transport: roundTripFunc(func(req *nethttp.Request) (*nethttp.Response, error) {
 				gotQuery = req.URL.RawQuery
+				gotReferer = req.Header.Get("Referer")
 				body, _ := io.ReadAll(req.Body)
 				gotBody = string(body)
 				return &nethttp.Response{
@@ -139,6 +141,9 @@ func TestCheckC2CItemUsesSessionAndPrice(t *testing.T) {
 	if !strings.Contains(gotBody, `"c2cItemsId":123`) || !strings.Contains(gotBody, `"price":4567`) {
 		t.Fatalf("unexpected request body: %s", gotBody)
 	}
+	if gotReferer != marketItemDetailReferer(123) {
+		t.Fatalf("unexpected detail referer: %s", gotReferer)
+	}
 	if resp.Code != 0 {
 		t.Fatalf("unexpected response code: %d", resp.Code)
 	}
@@ -147,12 +152,14 @@ func TestCheckC2CItemUsesSessionAndPrice(t *testing.T) {
 func TestQueryC2CItemDetailUsesItemIDAndParsesStatusFields(t *testing.T) {
 	var gotMethod string
 	var gotQuery string
+	var gotReferer string
 
 	client := &BiliClient{
 		httpClient: &nethttp.Client{
 			Transport: roundTripFunc(func(req *nethttp.Request) (*nethttp.Response, error) {
 				gotMethod = req.Method
 				gotQuery = req.URL.RawQuery
+				gotReferer = req.Header.Get("Referer")
 				return &nethttp.Response{
 					StatusCode: nethttp.StatusOK,
 					Body: io.NopCloser(strings.NewReader(`{
@@ -185,6 +192,9 @@ func TestQueryC2CItemDetailUsesItemIDAndParsesStatusFields(t *testing.T) {
 	}
 	if !strings.Contains(gotQuery, "csrf=token") {
 		t.Fatalf("expected csrf in query, got %s", gotQuery)
+	}
+	if gotReferer != marketItemDetailReferer(123) {
+		t.Fatalf("unexpected detail referer: %s", gotReferer)
 	}
 	if resp.Code != 0 {
 		t.Fatalf("unexpected response code: %d", resp.Code)

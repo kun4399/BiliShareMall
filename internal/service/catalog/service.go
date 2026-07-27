@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/kun4399/BiliShareMall/internal/dao"
+	"github.com/kun4399/BiliShareMall/internal/domain"
 	bilihttp "github.com/kun4399/BiliShareMall/internal/http"
 	cache "github.com/patrickmn/go-cache"
 	"github.com/rs/zerolog/log"
@@ -78,7 +80,6 @@ type StatusesChangedEvent struct {
 
 const (
 	statusRefreshMaxAge  = 5 * time.Minute
-	statusRefreshTimeout = 5 * time.Second
 	statusRefreshWorkers = 2
 )
 
@@ -234,69 +235,83 @@ func (s *Service) ListC2CItemDetailBySku(skuID int64, page, pageSize int, sortOp
 }
 
 func (s *Service) scheduleStatusRefresh(skuID int64, items []dao.CSCItem, cookieStr string) {
-	now := time.Now()
-	candidates := make([]dao.CSCItem, 0, len(items))
-
 	s.statusRefreshMu.Lock()
-	for _, item := range items {
-		if !item.StatusCheckedAt.IsZero() && now.Sub(item.StatusCheckedAt) < statusRefreshMaxAge {
-			continue
-		}
-		if _, exists := s.statusRefreshing[item.C2CItemsID]; exists {
-			continue
-		}
-		s.statusRefreshing[item.C2CItemsID] = struct{}{}
-		candidates = append(candidates, item)
-	}
-	s.statusRefreshMu.Unlock()
-
-	if len(candidates) == 0 {
+	if _, exists := s.statusRefreshing[skuID]; exists {
+		s.statusRefreshMu.Unlock()
 		return
 	}
+	s.statusRefreshing[skuID] = struct{}{}
+	s.statusRefreshMu.Unlock()
 
-	go s.refreshStatuses(skuID, candidates, cookieStr)
+	go s.refreshStatuses(skuID, items, cookieStr)
 }
 
-func (s *Service) refreshStatuses(skuID int64, items []dao.CSCItem, cookieStr string) {
+func (s *Service) refreshStatuses(skuID int64, visibleItems []dao.CSCItem, cookieStr string) {
 	s.statusRefreshSlots <- struct{}{}
 	defer func() { <-s.statusRefreshSlots }()
 	defer func() {
 		s.statusRefreshMu.Lock()
-		for _, item := range items {
-			delete(s.statusRefreshing, item.C2CItemsID)
-		}
+		delete(s.statusRefreshing, skuID)
 		s.statusRefreshMu.Unlock()
 	}()
 
-	changed := false
-	statusUpdates := make([]dao.C2CItemStatusUpdate, 0, len(items))
+	items, err := s.d.ReadC2CItemDetailsNeedingStatusRefresh(skuID, time.Now().Add(-statusRefreshMaxAge))
+	if err != nil {
+		log.Error().Err(err).Int64("skuId", skuID).Msg("failed to load stale item statuses")
+		return
+	}
+	items = prioritizeStatusRefreshItems(items, visibleItems)
+	if len(items) == 0 {
+		return
+	}
+
+	ctx := bilihttp.WithMarketRequestPriority(context.Background(), bilihttp.MarketRequestLowPriority)
 	for _, item := range items {
-		ctx, cancel := context.WithTimeout(context.Background(), statusRefreshTimeout)
 		status, err := s.statusResolver(ctx, item, cookieStr)
-		cancel()
 		if err != nil {
 			log.Warn().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to refresh item status")
 			continue
 		}
-		statusUpdates = append(statusUpdates, dao.C2CItemStatusUpdate{
-			C2CItemsID:       item.C2CItemsID,
-			NormalizedStatus: status,
-			CheckedAt:        time.Now(),
-		})
-		changed = changed || status != item.NormalizedStatus
+		if err := s.d.UpdateC2CItemStatus(item.C2CItemsID, status, time.Now()); err != nil {
+			log.Error().Err(err).Int64("itemId", item.C2CItemsID).Msg("failed to persist refreshed item status")
+			continue
+		}
+		if status != item.NormalizedStatus && s.emit != nil {
+			s.emit("catalog_statuses_changed", StatusesChangedEvent{
+				SkuID:     skuID,
+				UpdatedAt: time.Now().UnixMilli(),
+			})
+		}
+	}
+}
+
+func prioritizeStatusRefreshItems(items, visibleItems []dao.CSCItem) []dao.CSCItem {
+	if len(items) < 2 || len(visibleItems) == 0 {
+		return items
 	}
 
-	if err := s.d.UpdateC2CItemStatuses(statusUpdates); err != nil {
-		log.Error().Err(err).Int64("skuId", skuID).Int("count", len(statusUpdates)).Msg("failed to batch update item statuses")
-		return
+	staleByID := make(map[int64]dao.CSCItem, len(items))
+	for _, item := range items {
+		staleByID[item.C2CItemsID] = item
 	}
 
-	if changed && s.emit != nil {
-		s.emit("catalog_statuses_changed", StatusesChangedEvent{
-			SkuID:     skuID,
-			UpdatedAt: time.Now().UnixMilli(),
-		})
+	prioritized := make([]dao.CSCItem, 0, len(items))
+	seen := make(map[int64]struct{}, len(items))
+	for _, visible := range visibleItems {
+		item, exists := staleByID[visible.C2CItemsID]
+		if !exists {
+			continue
+		}
+		prioritized = append(prioritized, item)
+		seen[item.C2CItemsID] = struct{}{}
 	}
+	for _, item := range items {
+		if _, exists := seen[item.C2CItemsID]; exists {
+			continue
+		}
+		prioritized = append(prioritized, item)
+	}
+	return prioritized
 }
 
 func (s *Service) resolveItemStatus(ctx context.Context, item dao.CSCItem, cookieStr string) (string, error) {
@@ -305,7 +320,7 @@ func (s *Service) resolveItemStatus(ctx context.Context, item dao.CSCItem, cooki
 		return detailStatus, nil
 	}
 
-	if cookieStr == "" {
+	if !bilihttp.ParseBiliSession(cookieStr).IsLoggedIn() {
 		return "", detailErr
 	}
 
@@ -339,16 +354,35 @@ func (s *Service) checkItemStatusFromDetail(ctx context.Context, id int64, cooki
 	if err != nil {
 		return "", err
 	}
-
-	status := dao.NormalizeMarketStatusFromDetail(
-		resp.Data.PublishStatus,
-		resp.Data.Status,
-		resp.Data.SaleStatus,
-		resp.Data.DropReason,
-	)
+	status, err := normalizeDetailStatus(id, resp.Data)
+	if err != nil {
+		return "", err
+	}
 	cacheStore.Set(cacheKey, status, cache.DefaultExpiration)
 	time.Sleep(150 * time.Millisecond)
 	return status, nil
+}
+
+func normalizeDetailStatus(itemID int64, detail domain.C2CItemDetailStatus) (string, error) {
+	if detail.C2CItemsID != 0 && detail.C2CItemsID != itemID {
+		return "", fmt.Errorf("detail response item id mismatch: got %d, want %d", detail.C2CItemsID, itemID)
+	}
+	if detail.PublishStatus == nil && detail.Status == nil && detail.SaleStatus == nil {
+		if strings.TrimSpace(detail.DropReason) == "" {
+			return "", errors.New("detail response did not contain a status signal")
+		}
+		status := dao.NormalizeMarketStatusFromDetail(nil, nil, nil, detail.DropReason)
+		if status == dao.StatusOnSale {
+			return "", fmt.Errorf("detail response contained an unrecognized drop reason: %q", detail.DropReason)
+		}
+		return status, nil
+	}
+	return dao.NormalizeMarketStatusFromDetail(
+		detail.PublishStatus,
+		detail.Status,
+		detail.SaleStatus,
+		detail.DropReason,
+	), nil
 }
 
 func (s *Service) checkItemStatus(ctx context.Context, id int64, price int, cookieStr string) (bool, error) {

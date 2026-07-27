@@ -68,6 +68,9 @@ CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_created
 CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_status_created
     ON c2c_items(sku_id, normalized_status, created_at DESC, c2c_items_id DESC);
 
+CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_status_checked
+    ON c2c_items(sku_id, status_checked_at);
+
 CREATE TABLE IF NOT EXISTS c2c_item_groups
 (
     sku_id              INTEGER PRIMARY KEY,

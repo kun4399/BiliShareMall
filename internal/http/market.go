@@ -151,7 +151,7 @@ func (c *BiliClient) CheckC2CItem(ctx context.Context, session *BiliSession, ite
 	query := neturl.Values{}
 	query.Set("platform", "h5")
 
-	err := c.DoJSON(ctx, POST, marketBaseURL+"/c2c/order/info", query, payload, c.marketHeaders(session, fmt.Sprintf("%s&itemsId=%d", marketReferer, itemID)), &resp)
+	err := c.DoJSON(ctx, POST, marketBaseURL+"/c2c/order/info", query, payload, c.marketHeaders(session, marketItemDetailReferer(itemID)), &resp)
 	if err != nil {
 		return resp, err
 	}
@@ -175,7 +175,7 @@ func (c *BiliClient) QueryC2CItemDetail(ctx context.Context, session *BiliSessio
 		marketBaseURL+"/internet/c2c/items/queryC2cItemsDetail",
 		query,
 		nil,
-		c.marketHeaders(session, fmt.Sprintf("%s&itemsId=%d", marketReferer, itemID)),
+		c.marketHeaders(session, marketItemDetailReferer(itemID)),
 		&resp,
 	)
 	if err != nil {
@@ -185,6 +185,13 @@ func (c *BiliClient) QueryC2CItemDetail(ctx context.Context, session *BiliSessio
 		return resp, apiErr
 	}
 	return resp, nil
+}
+
+func marketItemDetailReferer(itemID int64) string {
+	return fmt.Sprintf(
+		"https://mall.bilibili.com/neul-next/index.html?page=magic-market_detail&noTitleBar=1&itemsId=%d",
+		itemID,
+	)
 }
 
 func normalizeFilterList(values []string) []string {

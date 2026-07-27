@@ -131,6 +131,11 @@ func (d *Database) EnsureCatalogIndexes() error {
 			statement: `CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_status_created
 				ON c2c_items(sku_id, normalized_status, created_at DESC, c2c_items_id DESC)`,
 		},
+		{
+			columns: []string{"sku_id", "status_checked_at"},
+			statement: `CREATE INDEX IF NOT EXISTS idx_c2c_items_sku_status_checked
+				ON c2c_items(sku_id, status_checked_at)`,
+		},
 	}
 	for _, index := range indexes {
 		available := true
@@ -286,6 +291,41 @@ func (d *Database) ReadAllC2CItemDetailsBySku(skuID int64) ([]CSCItem, error) {
 		WHERE sku_id = ?
 		ORDER BY COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) DESC, c2c_items_id DESC`,
 		skuID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]CSCItem, 0)
+	for rows.Next() {
+		item, err := scanCSCItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (d *Database) ReadC2CItemDetailsNeedingStatusRefresh(skuID int64, checkedBefore time.Time) ([]CSCItem, error) {
+	rows, err := d.Db.QueryContext(
+		context.Background(),
+		`SELECT
+			c2c_items_id, type, c2c_items_name, detail_name, detail_img, sku_id, items_id, reference_price,
+			total_items_count, price, show_price, show_market_price, seller_uid, seller_name,
+			payment_time, publish_time, is_my_publish, uface, raw_status, raw_sale_status,
+			normalized_status, status_checked_at,
+			COALESCE(CAST(strftime('%s', created_at) AS INTEGER) * 1000, 0) AS first_seen_time
+		FROM c2c_items
+		WHERE sku_id = ?
+			AND (status_checked_at IS NULL OR status_checked_at <= ?)
+		ORDER BY created_at DESC, c2c_items_id DESC`,
+		skuID,
+		checkedBefore,
 	)
 	if err != nil {
 		return nil, err

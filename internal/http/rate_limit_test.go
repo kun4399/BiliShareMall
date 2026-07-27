@@ -155,6 +155,70 @@ func TestMarketRateLimiterDefersLowPriorityRequestPastDeadline(t *testing.T) {
 	}
 }
 
+func TestMarketRateLimiterPrioritizesNormalRequestsOverQueuedStatusRefresh(t *testing.T) {
+	limiter := newMarketRateLimiter()
+	limiter.minInterval = 20 * time.Millisecond
+	limiter.jitter = 0
+	req := marketRateLimitTestRequest(t, "1001")
+
+	if _, err := limiter.Wait(context.Background(), req.Clone(context.Background())); err != nil {
+		t.Fatalf("initial Wait error: %v", err)
+	}
+
+	results := make(chan string, 2)
+	lowQueued := make(chan struct{}, 1)
+	lowCtx := WithMarketRequestPriority(context.Background(), MarketRequestLowPriority)
+	lowCtx = WithMarketRequestWaitObserver(lowCtx, func(MarketRequestWaitInfo) {
+		select {
+		case lowQueued <- struct{}{}:
+		default:
+		}
+	})
+	go func() {
+		_, _ = limiter.Wait(lowCtx, req.Clone(lowCtx))
+		results <- "low"
+	}()
+	select {
+	case <-lowQueued:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for low-priority request to queue")
+	}
+
+	normalQueued := make(chan struct{}, 1)
+	normalCtx := WithMarketRequestWaitObserver(context.Background(), func(MarketRequestWaitInfo) {
+		select {
+		case normalQueued <- struct{}{}:
+		default:
+		}
+	})
+	go func() {
+		_, _ = limiter.Wait(normalCtx, req.Clone(normalCtx))
+		results <- "normal"
+	}()
+	select {
+	case <-normalQueued:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for normal request to queue")
+	}
+
+	select {
+	case first := <-results:
+		if first != "normal" {
+			t.Fatalf("expected normal request first, got %s", first)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for prioritized request")
+	}
+	select {
+	case second := <-results:
+		if second != "low" {
+			t.Fatalf("expected low-priority request second, got %s", second)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for low-priority request")
+	}
+}
+
 func TestMarketRateLimiterKeepsDifferentAccountsIndependent(t *testing.T) {
 	limiter := newMarketRateLimiter()
 	limiter.minInterval = 100 * time.Millisecond
